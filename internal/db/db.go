@@ -31,7 +31,7 @@ func New(config Config) (*DB, error) {
 	dbPath := filepath.Join(config.DataDir, config.DBFile)
 
 	// WAL mode
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal_mode=WAL", dbPath))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000", dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -140,7 +140,7 @@ func (db *DB) Reconnect() error {
 	}
 
 	dbPath := filepath.Join(db.config.DataDir, db.config.DBFile)
-	newDB, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal_mode=WAL", dbPath))
+	newDB, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000", dbPath))
 	if err != nil {
 		return fmt.Errorf("failed to reopen database: %w", err)
 	}

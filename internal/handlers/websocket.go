@@ -33,14 +33,27 @@ type TranscodingUpdate struct {
 	Status        string `json:"status"` // pending, processing, completed, failed
 }
 
+// wsConn은 gorilla/websocket의 Conn을 mutex로 감싸 동시 쓰기를 직렬화합니다.
+// gorilla/websocket은 Conn.WriteMessage가 thread-safe하지 않으므로 필수입니다.
+type wsConn struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (c *wsConn) writeMessage(messageType int, data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn.WriteMessage(messageType, data)
+}
+
 type WSHub struct {
-	connections map[int64]map[*websocket.Conn]bool
+	connections map[int64]map[*wsConn]bool
 	mu          sync.RWMutex
 }
 
 func NewWSHub() *WSHub {
 	return &WSHub{
-		connections: make(map[int64]map[*websocket.Conn]bool),
+		connections: make(map[int64]map[*wsConn]bool),
 	}
 }
 
@@ -49,9 +62,9 @@ func (h *WSHub) Register(userID int64, conn *websocket.Conn) {
 	defer h.mu.Unlock()
 
 	if h.connections[userID] == nil {
-		h.connections[userID] = make(map[*websocket.Conn]bool)
+		h.connections[userID] = make(map[*wsConn]bool)
 	}
-	h.connections[userID][conn] = true
+	h.connections[userID][&wsConn{conn: conn}] = true
 	log.Printf("[WebSocket] User %d connected (total connections: %d)", userID, len(h.connections[userID]))
 }
 
@@ -60,7 +73,12 @@ func (h *WSHub) Unregister(userID int64, conn *websocket.Conn) {
 	defer h.mu.Unlock()
 
 	if conns, ok := h.connections[userID]; ok {
-		delete(conns, conn)
+		for c := range conns {
+			if c.conn == conn {
+				delete(conns, c)
+				break
+			}
+		}
 		if len(conns) == 0 {
 			delete(h.connections, userID)
 		}
@@ -89,8 +107,8 @@ func (h *WSHub) SendToUser(userID int64, msg WSMessage) {
 
 	log.Printf("[WebSocket] Sending message to user %d (%d connections): %s", userID, len(conns), string(data))
 
-	for conn := range conns {
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+	for c := range conns {
+		if err := c.writeMessage(websocket.TextMessage, data); err != nil {
 			log.Printf("[WebSocket] Failed to send message: %v", err)
 			// Don't remove here - let the read loop handle disconnection
 		}

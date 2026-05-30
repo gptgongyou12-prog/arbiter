@@ -17,7 +17,7 @@ frontend-build:
 	cd frontend && bun run build
 
 backend-build: frontend-build
-	go build -o server cmd/server/main.go
+	CGO_ENABLED=1 go build -o server cmd/server/main.go
 
 build: frontend-build backend-build
 
