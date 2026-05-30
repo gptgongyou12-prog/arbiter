@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -409,7 +410,15 @@ func (h *VersionsHandler) UploadVersion(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	version, err := h.db.CreateTrackVersion(ctx, sqlc.CreateTrackVersionParams{
+	vtx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return apperr.NewInternal("failed to start transaction", err)
+	}
+	defer vtx.Rollback()
+
+	vtxq := sqlc.New(vtx)
+
+	version, err := vtxq.CreateTrackVersion(ctx, sqlc.CreateTrackVersionParams{
 		TrackID:         track.ID,
 		VersionName:     versionName,
 		Notes:           notes,
@@ -420,6 +429,7 @@ func (h *VersionsHandler) UploadVersion(w http.ResponseWriter, r *http.Request) 
 		return apperr.NewInternal("failed to create version", err)
 	}
 
+	// 파일 저장 실패 시 defer vtx.Rollback()이 DB 레코드를 정리함
 	saveResult, err := h.storage.SaveTrackSource(r.Context(), storage.SaveTrackSourceInput{
 		ProjectPublicID: project.PublicID,
 		TrackID:         track.ID,
@@ -466,7 +476,7 @@ func (h *VersionsHandler) UploadVersion(w http.ResponseWriter, r *http.Request) 
 		bitrate = sql.NullInt64{Int64: int64(metadata.Bitrate), Valid: true}
 	}
 
-	_, err = h.db.CreateTrackFile(ctx, sqlc.CreateTrackFileParams{
+	_, err = vtxq.CreateTrackFile(ctx, sqlc.CreateTrackFileParams{
 		VersionID:         version.ID,
 		Quality:           quality,
 		FilePath:          saveResult.Path,
@@ -479,6 +489,10 @@ func (h *VersionsHandler) UploadVersion(w http.ResponseWriter, r *http.Request) 
 	})
 	if err != nil {
 		return apperr.NewInternal("failed to create track file record", err)
+	}
+
+	if err := vtx.Commit(); err != nil {
+		return apperr.NewInternal("failed to commit version upload", err)
 	}
 
 	if h.transcoder != nil {
@@ -551,11 +565,14 @@ func (h *VersionsHandler) DownloadVersion(w http.ResponseWriter, r *http.Request
 	}
 
 	filename := fmt.Sprintf("%s.%s", versionWithOwnership.VersionName, sourceFile.Format)
+	contentDisposition := mime.FormatMediaType("attachment", map[string]string{"filename": filename})
 
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.Header().Set("Content-Disposition", contentDisposition)
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
 
-	io.Copy(w, file)
+	if _, err := io.Copy(w, file); err != nil {
+		slog.Debug("download interrupted", "error", err)
+	}
 	return nil
 }

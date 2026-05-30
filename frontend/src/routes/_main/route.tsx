@@ -7,6 +7,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { SearchIcon, UserIcon, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFolder, useAllFolders, useUpdateFolder } from "@/hooks/useFolders";
@@ -20,6 +21,7 @@ export const Route = createFileRoute("/_main")({
 
 function MainLayout() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { theme } = useTheme();
   const navigate = useNavigate();
   const routerState = useRouterState();
 
@@ -197,7 +199,11 @@ function MainLayout() {
                 className="h-auto p-0 text-white/50 hover:text-white text-2xl font-medium shrink-0"
                 onClick={() => handleBreadcrumbClick(null)}
               >
-                {"{ vault }"}
+                {theme?.branding?.logoFile ? (
+                  <img src={`/api/theme/asset/${theme.branding.logoFile}`} alt="logo" className="h-6" />
+                ) : (
+                  "{ " + (theme?.branding?.siteName || "vault") + " }"
+                )}
               </Button>
               {folderLoading ? (
                 <>
@@ -248,8 +254,15 @@ function MainLayout() {
         ) : (
           <h1 className="md:ml-4 ml-0.5 text-xl font-semibold">
             <Link to="/">
-              <div className="text-2xl font-medium">{"{ vault }"}</div>
+              <div className="text-2xl font-medium">
+                {theme?.branding?.logoFile ? (
+                  <img src={`/api/theme/asset/${theme.branding.logoFile}`} alt="logo" className="h-6" />
+                ) : (
+                  "{ " + (theme?.branding?.siteName || "vault") + " }"
+                )}
+              </div>
             </Link>
+            <div className="text-[10px] text-white/30 font-mono mt-0.5 select-none">0.260530.01.1 (beta)</div>
           </h1>
         )}
         <div className="flex items-center gap-2.5">

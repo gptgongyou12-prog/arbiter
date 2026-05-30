@@ -86,6 +86,8 @@ export interface Track {
   waveform?: string | null
   lossy_transcoding_status?: TranscodingStatus | null
   visibility_status?: VisibilityStatus
+  cover_url?: string | null
+  lyrics?: string | null
 }
 
 export interface TrackWithShareInfo extends Track {

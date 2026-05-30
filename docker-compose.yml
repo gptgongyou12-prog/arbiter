@@ -1,7 +1,6 @@
 services:
   vault-server:
-    image: ghcr.io/bungleware/vault:main
-    pull_policy: always
+    image: vault-local
     container_name: vault-server
     restart: unless-stopped
     ports:
@@ -17,7 +16,7 @@ services:
       - SIGNED_URL_TTL=${SIGNED_URL_TTL:-5m}
       - LOG_LEVEL=${LOG_LEVEL:-warn}
     volumes:
-      - ./data:/app/data
+      - /mnt/vault-usb/vault-data:/app/data
     healthcheck:
       test:
         [

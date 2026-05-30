@@ -19,6 +19,9 @@ func Wrap(h AppHandler) http.HandlerFunc {
 		if err := h(w, r); err != nil {
 			var appErr *apperr.AppError
 			if errors.As(err, &appErr) {
+				if appErr.Status >= 500 {
+					slog.ErrorContext(r.Context(), "app error 500", "message", appErr.Message, "error", appErr.Err)
+				}
 				http.Error(w, appErr.Message, appErr.Status)
 			} else {
 				slog.ErrorContext(r.Context(), "unhandled error", "error", err)

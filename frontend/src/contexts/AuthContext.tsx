@@ -45,6 +45,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
     initAuth();
   }, []);
 
+  // PWA 백그라운드 복귀 시 토큰 사전 갱신 (재생 중 401 방지)
+  useEffect(() => {
+    let lastRefreshAt = Date.now();
+    const REFRESH_INTERVAL = 5 * 60 * 1000; // 5분 이상 지났을 때만 갱신
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!user) return;
+      if (Date.now() - lastRefreshAt < REFRESH_INTERVAL) return;
+
+      try {
+        await authApi.refresh();
+        lastRefreshAt = Date.now();
+      } catch {
+        // refresh 실패 시 자연스럽게 다음 API 요청에서 처리됨
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [user]);
+
 	const login = async (credentials: LoginRequest) => {
 		const response: AuthResponse = await authApi.login(credentials);
 		setUser(response.user);

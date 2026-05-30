@@ -230,14 +230,16 @@ func main() {
 	authService := service.NewAuthService(database, config.AuthConfig)
 
 	authHandler := handlers.NewAuthHandler(authService, config.AuthConfig)
-	adminHandler := handlers.NewAdminHandler(database, config.AuthConfig)
+	adminHandler := handlers.NewAdminHandler(database, config.AuthConfig, config.DataDir)
+	themeDir := filepath.Join(config.DataDir, "theme")
+	themeHandler := handlers.NewThemeHandler(database, themeDir)
 	prefsHandler := handlers.NewPreferencesHandler(database)
 	statsHandler := handlers.NewStatsHandler(database, Version, CommitSHA)
 	instanceHandler := handlers.NewInstanceHandler(database, config.DataDir, wsHub)
 	mediaHandler := handlers.NewMediaHandler(config.AuthConfig)
 	projectsHandler := projects.NewProjectsHandler(svc.Projects, database, config.DataDir)
 	foldersHandler := handlers.NewFoldersHandler(database)
-	tracksHandler := tracks.NewTracksHandler(database, storageAdapter, transcoder)
+	tracksHandler := tracks.NewTracksHandler(database, storageAdapter, transcoder, config.DataDir)
 	versionsHandler := handlers.NewVersionsHandler(database, storageAdapter, transcoder)
 	streamingHandler := handlers.NewStreamingHandler(database)
 	sharingHandler := sharing.NewSharingHandler(database, storageAdapter)
@@ -275,6 +277,7 @@ func main() {
 	mux.HandleFunc("PUT /api/share/{token}/track/{trackId}/update", shareRL.RateLimit(httputil.Wrap(sharingHandler.UpdateSharedTrackFromToken)))
 	mux.HandleFunc("GET /api/instance/version", publicRL.RateLimit(httputil.Wrap(statsHandler.GetInstanceVersion)))
 
+
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -297,6 +300,12 @@ func main() {
 	}
 
 	authMW := middleware.AuthMiddleware(config.AuthConfig.JWTSecret, sessionValidator)
+
+	mux.Handle("POST /api/admin/theme", authMW(httputil.Wrap(themeHandler.UploadTheme)))
+	mux.Handle("DELETE /api/admin/theme", authMW(httputil.Wrap(themeHandler.DeleteTheme)))
+	mux.Handle("GET /api/theme", httputil.Wrap(themeHandler.GetTheme))
+	mux.HandleFunc("GET /api/theme/asset/", themeHandler.ServeAsset)
+	mux.HandleFunc("GET /api/theme/layout/", themeHandler.ServeLayout)
 	optionalAuthMW := middleware.OptionalAuthMiddleware(config.AuthConfig.JWTSecret, sessionValidator)
 	signedURLMW := middleware.SignedURLMiddleware(config.AuthConfig.SignedURLSecret, 30*time.Second)
 
@@ -310,6 +319,7 @@ func main() {
 	mux.Handle("GET /api/admin/users", authMW(httputil.Wrap(adminHandler.ListUsers)))
 	mux.Handle("POST /api/admin/users/invite", authMW(httputil.Wrap(adminHandler.CreateInvite)))
 	mux.Handle("PUT /api/admin/users/{id}/role", authMW(httputil.Wrap(adminHandler.UpdateUserRole)))
+	mux.Handle("PUT /api/admin/users/{id}/lite-mode", authMW(httputil.Wrap(adminHandler.SetUserLiteMode)))
 	mux.Handle("PUT /api/admin/users/{id}/rename", authMW(httputil.Wrap(adminHandler.RenameUser)))
 	mux.Handle("DELETE /api/admin/users/{id}", authMW(httputil.Wrap(adminHandler.DeleteUser)))
 	mux.Handle("POST /api/admin/users/{id}/reset-link", authMW(httputil.Wrap(adminHandler.CreateResetLink)))
@@ -318,6 +328,10 @@ func main() {
 	mux.Handle("GET /api/admin/instance/export", authMW(httputil.Wrap(instanceHandler.ExportInstance)))
 	mux.Handle("POST /api/admin/instance/import", authMW(httputil.Wrap(instanceHandler.ImportInstance)))
 	mux.Handle("POST /api/admin/instance/reset", authMW(httputil.Wrap(instanceHandler.ResetInstance)))
+	mux.Handle("GET /api/admin/notifications", authMW(httputil.Wrap(adminHandler.GetAdminNotifications)))
+	mux.Handle("DELETE /api/admin/notifications", authMW(httputil.Wrap(adminHandler.ClearAdminNotifications)))
+	mux.Handle("GET /api/admin/system", authMW(httputil.Wrap(adminHandler.GetSystemInfo)))
+	mux.Handle("POST /api/admin/optimize", authMW(httputil.Wrap(adminHandler.RunOptimize)))
 
 	mux.Handle("GET /api/preferences", authMW(httputil.Wrap(prefsHandler.GetPreferences)))
 	mux.Handle("PUT /api/preferences", authMW(httputil.Wrap(prefsHandler.UpdatePreferences)))
@@ -350,6 +364,14 @@ func main() {
 	mux.Handle("DELETE /api/folders/{id}", authMW(httputil.Wrap(foldersHandler.DeleteFolder)))
 
 	mux.Handle("POST /api/library/upload", authMW(httputil.Wrap(tracksHandler.UploadTrack)))
+	mux.Handle("POST /api/library/youtube/import", authMW(httputil.Wrap(tracksHandler.ImportMediaTrack)))
+	mux.Handle("POST /api/library/youtube/search", authMW(httputil.Wrap(tracksHandler.SearchMedia)))
+	mux.Handle("POST /api/library/playlist/info", authMW(httputil.Wrap(tracksHandler.GetPlaylistInfo)))
+	mux.Handle("POST /api/library/playlist/import", authMW(httputil.Wrap(tracksHandler.ImportPlaylist)))
+	// Split import (single video with chapters → new project)
+	mux.Handle("POST /api/library/youtube/split/preview", authMW(httputil.Wrap(tracksHandler.GetSplitPreview)))
+	mux.Handle("POST /api/library/youtube/split/import", authMW(httputil.Wrap(tracksHandler.ImportSplitTracks)))
+	mux.Handle("GET /api/library/youtube/split/status/{jobId}", authMW(httputil.Wrap(tracksHandler.GetSplitStatus)))
 	mux.Handle("POST /api/tracks/reorder", authMW(httputil.Wrap(tracksHandler.UpdateTracksOrder)))
 	mux.Handle("GET /api/tracks", authMW(httputil.Wrap(tracksHandler.ListTracks)))
 	mux.Handle("GET /api/tracks/search", authMW(httputil.Wrap(tracksHandler.SearchTracks)))
@@ -357,6 +379,14 @@ func main() {
 	mux.Handle("PUT /api/tracks/{id}", authMW(httputil.Wrap(tracksHandler.UpdateTrack)))
 	mux.Handle("DELETE /api/tracks/{id}", authMW(httputil.Wrap(tracksHandler.DeleteTrack)))
 	mux.Handle("POST /api/tracks/{id}/duplicate", authMW(httputil.Wrap(tracksHandler.DuplicateTrack)))
+	mux.Handle("POST /api/tracks/{id}/cover", authMW(httputil.Wrap(tracksHandler.SetTrackCover)))
+	mux.Handle("GET /api/tracks/{id}/cover", httputil.Wrap(tracksHandler.GetTrackCover))
+	mux.Handle("GET /api/tracks/{id}/lyrics", authMW(httputil.Wrap(tracksHandler.GetTrackLyrics)))
+	mux.Handle("POST /api/tracks/{id}/lyrics", authMW(httputil.Wrap(tracksHandler.SetTrackLyrics)))
+	mux.Handle("POST /api/tracks/{id}/lyrics/synced", authMW(httputil.Wrap(tracksHandler.SetSyncedLyrics)))
+	mux.Handle("POST /api/tracks/{id}/lyrics/fetch", authMW(httputil.Wrap(tracksHandler.FetchTrackLyrics)))
+	mux.Handle("POST /api/lyrics/itunes/search", authMW(httputil.Wrap(tracksHandler.SearchItunesLyrics)))
+	mux.Handle("POST /api/lyrics/lrclib/fetch", authMW(httputil.Wrap(tracksHandler.FetchLrclibLyrics)))
 
 	mux.Handle("GET /api/tracks/{track_id}/versions", authMW(httputil.Wrap(versionsHandler.ListVersions)))
 	mux.Handle("POST /api/tracks/{track_id}/versions/upload", authMW(httputil.Wrap(versionsHandler.UploadVersion)))

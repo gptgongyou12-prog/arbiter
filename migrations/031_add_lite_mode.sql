@@ -1,0 +1,1 @@
+ALTER TABLE user_preferences ADD COLUMN lite_mode INTEGER NOT NULL DEFAULT 0;

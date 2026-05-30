@@ -1,3 +1,6 @@
+import { SplitJobProvider } from "@/contexts/SplitJobContext";
+import { LiteModeProvider } from "@/contexts/LiteModeContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -8,6 +11,7 @@ import { useEffect, useState } from "react";
 
 import { toast as sonnerToast, Toaster } from "sonner";
 import MusicPlayer from "../components/MusicPlayer";
+import { AdminNotificationBanner } from "../components/AdminNotificationBanner";
 import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
 import { checkUsersExist } from "../api/auth";
@@ -175,7 +179,9 @@ function RootComponent() {
   ]);
 
   return (
-    <>
+    <ThemeProvider>
+      <LiteModeProvider><SplitJobProvider>
+      <AdminNotificationBanner />
       <Outlet />
       {isAuthenticated && !isSetupRoute && <MusicPlayer hideControls={isProfileRoute} />}
       <Toaster
@@ -188,7 +194,8 @@ function RootComponent() {
           justifyContent: "center",
         }}
       />
-    </>
+    </SplitJobProvider></LiteModeProvider>
+    </ThemeProvider>
   );
 }
 

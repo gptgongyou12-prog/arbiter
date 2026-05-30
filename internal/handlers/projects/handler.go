@@ -191,22 +191,16 @@ func (h *ProjectsHandler) GetProject(w http.ResponseWriter, r *http.Request) err
 		}
 
 		if !hasAccess {
-			tracks, err := h.db.ListTracksByProjectID(ctx, projectByPublic.ID)
-			if err == nil {
-				for _, track := range tracks {
-					trackShares, err := h.db.ListUsersTrackIsSharedWith(ctx, track.ID)
-					if err == nil {
-						for _, share := range trackShares {
-							if share.SharedTo == int64(userID) {
-								hasAccess = true
-								break
-							}
-						}
-					}
-					if hasAccess {
-						break
-					}
-				}
+			// 단일 쿼리로 트랙 레벨 공유 접근 확인 (N+1 방지)
+			var count int
+			row := h.db.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM user_track_shares uts
+				 JOIN tracks t ON uts.track_id = t.id
+				 WHERE t.project_id = ? AND uts.shared_to = ? LIMIT 1`,
+				projectByPublic.ID, int64(userID),
+			)
+			if row.Scan(&count) == nil && count > 0 {
+				hasAccess = true
 			}
 		}
 	}
@@ -495,13 +489,9 @@ func (h *ProjectsHandler) DuplicateProject(w http.ResponseWriter, r *http.Reques
 
 	finalProject, err := h.service.GetProject(ctx, duplicateProject.PublicID, int64(userID))
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
 		return httputil.CreatedResult(w, shared.ConvertProject(duplicateProject))
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
 	return httputil.CreatedResult(w, shared.ConvertProject(finalProject))
 }
 

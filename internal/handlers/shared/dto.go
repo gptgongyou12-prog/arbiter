@@ -67,6 +67,7 @@ type TrackResponse struct {
 	UpdatedAt                    string   `json:"updated_at"`
 	Waveform                     *string  `json:"waveform,omitempty"`
 	LossyTranscodingStatus       *string  `json:"lossy_transcoding_status,omitempty"`
+	CoverUrl                     *string  `json:"cover_url,omitempty"`
 }
 
 // TrackListResponse is for list endpoints that include additional fields

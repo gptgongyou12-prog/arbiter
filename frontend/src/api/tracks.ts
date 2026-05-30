@@ -120,3 +120,4 @@ export async function moveTrack(trackId: string, projectId: number): Promise<Tra
 export async function updateTrackNotes(trackId: string, notes: string, authorName?: string): Promise<Track> {
   return updateTrack(trackId, { notes, notes_author_name: authorName })
 }
+

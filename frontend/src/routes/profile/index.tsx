@@ -1,10 +1,11 @@
+import React from 'react'
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import CDDiscBadge from "@/components/CDDiscBadge";
 // import { LinearBlur } from "progressive-blur";
 import { Button } from "@/components/ui/button";
-import { Pencil, Users } from "lucide-react";
+import { Pencil, Users, Thermometer, Zap } from "lucide-react";
 import { motion } from "motion/react";
 import {
   getStorageStats,
@@ -31,6 +32,102 @@ export const Route = createFileRoute("/profile/")({
   component: ProfilePage,
 });
 
+
+function getCSRF(): string {
+  const m = document.cookie.match(/csrf_token=([^;]*)/)
+  return m ? decodeURIComponent(m[1]) : ''
+}
+
+function ThemeCard() {
+  const [currentTheme, setCurrentTheme] = React.useState<string | null>(null)
+  const [resetting, setResetting] = React.useState(false)
+
+  React.useEffect(() => {
+    fetch('/api/theme', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        if (d?.meta?.name) setCurrentTheme(d.meta.name)
+        else setCurrentTheme(null)
+      }).catch(() => {})
+  }, [])
+
+  const handleReset = async () => {
+    setResetting(true)
+    try {
+      const res = await fetch('/api/admin/theme', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': getCSRF(), 'Content-Type': 'application/json' },
+      })
+      if (!res.ok) throw new Error()
+      toast.success('기본 테마로 돌아갔습니다. 새로고침 중...')
+      setTimeout(() => window.location.reload(), 1500)
+    } catch {
+      toast.error('리셋 실패')
+      setResetting(false)
+    }
+  }
+
+  return (
+    <div className="bg-linear-to-b from-[#232323] to-[#201f1f] border border-[#353333] rounded-3xl p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-2xl font-medium text-white">Theme</h2>
+        {currentTheme && (
+          <button
+            onClick={handleReset}
+            disabled={resetting}
+            className="text-sm text-[#9f9f9f] hover:text-white border border-[#353333] px-3 py-1 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {resetting ? '리셋 중...' : '기본값으로'}
+          </button>
+        )}
+      </div>
+      <div className="text-sm text-[#9f9f9f] mb-4">
+        {currentTheme
+          ? <>현재 적용 중: <span className="text-white font-medium">{currentTheme}</span></>
+          : '기본 테마 사용 중'
+        }
+      </div>
+      <p className="text-xs text-[#9f9f9f] mb-4">.vaulttheme 파일을 업로드하면 앱 전체 UI가 변경됩니다</p>
+      <input
+        type="file"
+        id="theme-file"
+        accept=".vaulttheme,.zip"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          const fd = new FormData()
+          fd.append('theme', file)
+          try {
+            const res = await fetch('/api/admin/theme', {
+              method: 'POST',
+              body: fd,
+              credentials: 'include',
+              headers: { 'X-CSRF-Token': getCSRF() },
+            })
+            if (!res.ok) {
+              const txt = await res.text().catch(() => res.status.toString())
+              toast.error(`업로드 실패 (${res.status}): ${txt.slice(0, 80)}`)
+              return
+            }
+            toast.success('테마 적용됨! 새로고침 중...')
+            setTimeout(() => window.location.reload(), 1500)
+          } catch (err: any) {
+            toast.error('업로드 실패: ' + (err?.message || '네트워크 오류'))
+          }
+        }}
+      />
+      <label
+        htmlFor="theme-file"
+        className="cursor-pointer block bg-[#0099bb] hover:bg-[#007a94] text-white px-4 py-2 rounded-lg text-center font-medium transition-colors"
+      >
+        테마 업로드 (.vaulttheme)
+      </label>
+    </div>
+  )
+}
+
 function ProfilePage() {
   const { user, updateUsername } = useAuth();
   const queryClient = useQueryClient();
@@ -48,6 +145,8 @@ function ProfilePage() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [systemInfo, setSystemInfo] = useState<{ cpu_temp_c: number; main_disk: any; usb_disk: any } | null>(null);
+  const [optimizing, setOptimizing] = useState(false);
   const instanceNameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -66,6 +165,10 @@ function ProfilePage() {
         if (user?.is_admin) {
           const globalData = await getGlobalStorageStats();
           setGlobalStorageStats(globalData);
+          try {
+            const sys = await import("@/api/client").then(m => m.get<any>("/api/admin/system"));
+            setSystemInfo(sys);
+          } catch { /* ignore */ }
         }
       } catch (error) {
         console.error("Failed to fetch profile data:", error);
@@ -123,6 +226,24 @@ function ProfilePage() {
       toast.error("Failed to update profile");
       console.error("Failed to update profile:", error);
       throw error;
+    }
+  };
+
+  const handleOptimize = async () => {
+    setOptimizing(true);
+    try {
+      await import("@/api/client").then(m => m.post("/api/admin/optimize", {}));
+      toast.success("최적화가 시작됐습니다");
+      setTimeout(async () => {
+        try {
+          const sys = await import("@/api/client").then(m => m.get<any>("/api/admin/system"));
+          setSystemInfo(sys);
+        } catch { /* ignore */ }
+        setOptimizing(false);
+      }, 3000);
+    } catch {
+      toast.error("최적화 실패");
+      setOptimizing(false);
     }
   };
 
@@ -322,6 +443,58 @@ function ProfilePage() {
                   </div>
                 </div>
               </div>
+
+              {user?.is_admin && systemInfo && (
+                <div className="bg-linear-to-b from-[#232323] to-[#201f1f] border border-[#353333] rounded-3xl p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-medium text-white">Server</h2>
+                    <Button
+                      className="bg-[#0099bb] rounded-[7px] px-4 py-1 text-white text-sm font-medium h-auto hover:bg-[#007a94] flex items-center gap-2 disabled:opacity-50"
+                      onClick={handleOptimize}
+                      disabled={optimizing}
+                    >
+                      <Zap className="size-4" />
+                      {optimizing ? "최적화 중..." : "최적화"}
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="bg-[#191919] border border-[#353333] rounded-[21px] p-4">
+                      <p className="text-[#9f9f9f] text-xs font-['IBM_Plex_Mono'] mb-2 flex items-center gap-1">
+                        <Thermometer className="size-3" /> CPU TEMP
+                      </p>
+                      <p className={`text-3xl font-semibold ${systemInfo.cpu_temp_c > 70 ? "text-red-400" : systemInfo.cpu_temp_c > 45 ? "text-amber-400" : "text-white"}`}>
+                        {systemInfo.cpu_temp_c.toFixed(1)}°C
+                      </p>
+                    </div>
+                    {systemInfo.main_disk && (
+                      <div className="bg-[#191919] border border-[#353333] rounded-[21px] p-4">
+                        <p className="text-[#9f9f9f] text-xs font-['IBM_Plex_Mono'] mb-2">MAIN DISK</p>
+                        <p className={`text-3xl font-semibold ${systemInfo.main_disk.used_pct > 85 ? "text-red-400" : systemInfo.main_disk.used_pct > 70 ? "text-amber-400" : "text-white"}`}>
+                          {systemInfo.main_disk.used_pct.toFixed(0)}%
+                        </p>
+                        <p className="text-[#919191] text-sm">
+                          {(systemInfo.main_disk.used / 1073741824).toFixed(1)} / {(systemInfo.main_disk.total / 1073741824).toFixed(1)} GB
+                        </p>
+                      </div>
+                    )}
+                    {systemInfo.usb_disk && (
+                      <div className="bg-[#191919] border border-[#353333] rounded-[21px] p-4">
+                        <p className="text-[#9f9f9f] text-xs font-['IBM_Plex_Mono'] mb-2">USB DISK</p>
+                        <p className={`text-3xl font-semibold ${systemInfo.usb_disk.used_pct > 85 ? "text-red-400" : systemInfo.usb_disk.used_pct > 70 ? "text-amber-400" : "text-white"}`}>
+                          {systemInfo.usb_disk.used_pct.toFixed(0)}%
+                        </p>
+                        <p className="text-[#919191] text-sm">
+                          {(systemInfo.usb_disk.used / 1073741824).toFixed(1)} / {(systemInfo.usb_disk.total / 1073741824).toFixed(1)} GB
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+                            {user?.is_admin && (
+                <ThemeCard />
+              )}
 
               {user?.is_admin && (
                 <div className="bg-linear-to-b from-[#232323] to-[#201f1f] border border-[#353333] rounded-3xl p-6">

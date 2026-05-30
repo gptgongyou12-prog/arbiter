@@ -3,6 +3,7 @@ import {
   Link,
   FileText,
   AudioWaveform,
+  ListVideo,
   ListPlus,
   Download,
   FolderInput,
@@ -101,7 +102,7 @@ function TrackDetailsModal({
   const [trackTitle, setTrackTitle] = useState(track.title);
   const [isTitleFocused, setIsTitleFocused] = useState(false);
   const [titleOverflows, setTitleOverflows] = useState(false);
-  const { addToQueue, currentTrack, stop } = useAudioPlayer();
+  const { playNext, addToQueue, currentTrack, stop } = useAudioPlayer();
   const queryClient = useQueryClient();
   const prevTrackIdRef = useRef(trackId);
   const closeTimeoutRef = useRef<number | null>(null);
@@ -268,6 +269,19 @@ function TrackDetailsModal({
     } finally {
       setIsDeletingTrack(false);
     }
+  };
+
+  const handlePlayNext = () => {
+    playNext({
+      id: trackId,
+      title: track.title,
+      artist: artist,
+      projectName: projectName,
+      coverUrl: coverUrl,
+      projectId: projectId,
+      projectCoverUrl: projectCoverUrl ?? undefined,
+    });
+    toast.success(`"${track.title}" will play next`);
   };
 
   const handleAddToQueue = () => {
@@ -676,6 +690,12 @@ function TrackDetailsModal({
                                 position="middle"
                               />
                             )}
+                            <ActionButton
+                              icon={ListVideo}
+                              label="Play next"
+                              onClick={handlePlayNext}
+                              position="middle"
+                            />
                             <ActionButton
                               icon={ListPlus}
                               label="Add to queue"

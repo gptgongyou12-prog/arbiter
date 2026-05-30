@@ -46,6 +46,7 @@ type AuthResponse struct {
 }
 
 type UpdatePreferencesRequest struct {
+	LiteMode *bool `json:"lite_mode"`
 	DefaultQuality     *models.Quality `json:"default_quality,omitempty"`
 	DiscColors         *[]string       `json:"disc_colors,omitempty"`
 	ColorSpread        *int            `json:"color_spread,omitempty"`

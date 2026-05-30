@@ -113,7 +113,15 @@ func (h *TracksHandler) UploadTrack(w http.ResponseWriter, r *http.Request) erro
 		maxOrder = -1
 	}
 
-	track, err := h.db.CreateTrack(ctx, sqlc.CreateTrackParams{
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return apperr.NewInternal("failed to start transaction", err)
+	}
+	defer tx.Rollback()
+
+	txq := sqlc.New(tx)
+
+	track, err := txq.CreateTrack(ctx, sqlc.CreateTrackParams{
 		UserID:    int64(userID),
 		ProjectID: project.ID,
 		Title:     title,
@@ -126,7 +134,7 @@ func (h *TracksHandler) UploadTrack(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	newOrder := maxOrder + 1
-	err = h.db.Queries.UpdateTrackOrder(ctx, sqlc.UpdateTrackOrderParams{
+	err = txq.UpdateTrackOrder(ctx, sqlc.UpdateTrackOrderParams{
 		TrackOrder: newOrder,
 		ID:         track.ID,
 	})
@@ -139,7 +147,7 @@ func (h *TracksHandler) UploadTrack(w http.ResponseWriter, r *http.Request) erro
 		versionName = "Original Upload"
 	}
 
-	version, err := h.db.CreateTrackVersion(ctx, sqlc.CreateTrackVersionParams{
+	version, err := txq.CreateTrackVersion(ctx, sqlc.CreateTrackVersionParams{
 		TrackID:         track.ID,
 		VersionName:     versionName,
 		Notes:           sql.NullString{},
@@ -150,7 +158,7 @@ func (h *TracksHandler) UploadTrack(w http.ResponseWriter, r *http.Request) erro
 		return apperr.NewInternal("failed to create version", err)
 	}
 
-	err = h.db.SetActiveVersion(ctx, sqlc.SetActiveVersionParams{
+	err = txq.SetActiveVersion(ctx, sqlc.SetActiveVersionParams{
 		ActiveVersionID: sql.NullInt64{Int64: version.ID, Valid: true},
 		ID:              track.ID,
 	})
@@ -158,6 +166,7 @@ func (h *TracksHandler) UploadTrack(w http.ResponseWriter, r *http.Request) erro
 		return apperr.NewInternal("failed to set active version", err)
 	}
 
+	// 파일 저장 실패 시 defer tx.Rollback()이 DB 레코드를 정리함
 	saveResult, err := h.storage.SaveTrackSource(r.Context(), storage.SaveTrackSourceInput{
 		ProjectPublicID: project.PublicID,
 		TrackID:         track.ID,
@@ -204,7 +213,7 @@ func (h *TracksHandler) UploadTrack(w http.ResponseWriter, r *http.Request) erro
 		bitrate = sql.NullInt64{Int64: int64(metadata.Bitrate), Valid: true}
 	}
 
-	_, err = h.db.CreateTrackFile(ctx, sqlc.CreateTrackFileParams{
+	_, err = txq.CreateTrackFile(ctx, sqlc.CreateTrackFileParams{
 		VersionID:         version.ID,
 		Quality:           quality,
 		FilePath:          saveResult.Path,
@@ -217,6 +226,10 @@ func (h *TracksHandler) UploadTrack(w http.ResponseWriter, r *http.Request) erro
 	})
 	if err != nil {
 		return apperr.NewInternal("failed to create track file record", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return apperr.NewInternal("failed to commit track upload", err)
 	}
 
 	if h.transcoder != nil {

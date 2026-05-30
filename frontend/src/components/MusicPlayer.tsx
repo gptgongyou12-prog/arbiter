@@ -22,7 +22,7 @@ import {
   type AnimatedIconHandle,
 } from "./AnimatedSkipIcons";
 import { useProjectCoverImage } from "../hooks/useProjectCoverImage";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { LyricsPanel } from "./LyricsPanel";
 import { useWebHaptics } from "web-haptics/react";
 
 interface MusicPlayerProps {
@@ -32,8 +32,6 @@ interface MusicPlayerProps {
 export default function MusicPlayer({
   hideControls = false,
 }: MusicPlayerProps) {
-  const navigate = useNavigate();
-  const routerState = useRouterState();
   const haptic = useWebHaptics();
   const {
     currentTrack,
@@ -100,6 +98,7 @@ export default function MusicPlayer({
   const [isDragging, setIsDragging] = useState(false);
   const [isVolumeDragging, setIsVolumeDragging] = useState(false);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
+  const [isLyricsOpen, setIsLyricsOpen] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
   const [, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -183,50 +182,20 @@ export default function MusicPlayer({
   const handlePlayPause = useCallback(() => {
     if (isPlaying) {
       pause();
-    } else if (currentTrack) {
-      resume();
-    } else if (queue.length > 0) {
-      playFromQueue();
+    } else {
+      if (currentTrack) {
+        resume();
+      } else if (queue.length > 0) {
+        playFromQueue();
+      }
     }
   }, [isPlaying, pause, resume, currentTrack, queue.length, playFromQueue]);
 
   const handleTrackTitleClick = useCallback(() => {
     if (!currentTrack?.id) return;
+    setIsLyricsOpen(true);
+  }, [currentTrack?.id]);
 
-    if (currentTrack.isSharedTrack) {
-      navigate({
-        to: "/shared-track/$trackId",
-        params: { trackId: currentTrack.id },
-      });
-      return;
-    }
-
-    if (currentTrack.projectId) {
-      const currentPath = routerState.location.pathname;
-      const targetPath = `/project/${currentTrack.projectId}`;
-
-      if (currentPath === targetPath || currentPath === `${targetPath}/`) {
-        window.dispatchEvent(
-          new CustomEvent("scroll-to-track", {
-            detail: { trackId: currentTrack.id },
-          }),
-        );
-      } else {
-        sessionStorage.setItem("scrollToTrack", currentTrack.id);
-
-        navigate({
-          to: "/project/$projectId",
-          params: { projectId: currentTrack.projectId },
-        });
-      }
-    }
-  }, [
-    currentTrack?.id,
-    currentTrack?.projectId,
-    currentTrack?.isSharedTrack,
-    navigate,
-    routerState.location.pathname,
-  ]);
 
   const toggleMute = useCallback(() => {
     if (volumePercentage > 0) {
@@ -457,43 +426,39 @@ export default function MusicPlayer({
     if (!audioUrl || !audioRef.current) return;
 
     const audio = audioRef.current;
-    const currentSrc = audio.src;
-    const newSrc = audioUrl;
 
-    if (currentSrc !== newSrc) {
-      const preloadedAudio = getPreloadedAudio();
-      if (preloadedAudio && preloadedAudio.src === audioUrl) {
-        clearPreloadedAudio();
-      }
+    const preloadedAudio = getPreloadedAudio();
+    if (preloadedAudio && preloadedAudio.src === audioUrl) {
+      clearPreloadedAudio();
+    }
 
-      audio.src = audioUrl;
-      audio.volume = volumePercentage / 100;
-      audio.load();
+    audio.src = audioUrl;
+    audio.volume = volumePercentage / 100;
+    audio.load();
 
-      if (isPlaying) {
-        const handleLoadedData = () => {
+    if (isPlaying) {
+      const handleLoadedData = () => {
+        audio.play().catch((error) => {
+          console.error("Failed to play:", error);
+        });
+      };
+
+      audio.addEventListener("loadeddata", handleLoadedData, { once: true });
+
+      const handleCanPlay = () => {
+        if (audio.paused && audio.readyState >= 2) {
           audio.play().catch((error) => {
             console.error("Failed to play:", error);
           });
-        };
+        }
+      };
 
-        audio.addEventListener("loadeddata", handleLoadedData, { once: true });
+      audio.addEventListener("canplay", handleCanPlay, { once: true });
 
-        const handleCanPlay = () => {
-          if (audio.paused && audio.readyState >= 2) {
-            audio.play().catch((error) => {
-              console.error("Failed to play:", error);
-            });
-          }
-        };
-
-        audio.addEventListener("canplay", handleCanPlay, { once: true });
-
-        return () => {
-          audio.removeEventListener("loadeddata", handleLoadedData);
-          audio.removeEventListener("canplay", handleCanPlay);
-        };
-      }
+      return () => {
+        audio.removeEventListener("loadeddata", handleLoadedData);
+        audio.removeEventListener("canplay", handleCanPlay);
+      };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUrl, getPreloadedAudio, clearPreloadedAudio]);
@@ -1042,6 +1007,8 @@ export default function MusicPlayer({
                 className="text-white hover:text-gray-300 transition-colors cursor-pointer"
                 aria-label="Next track"
                 onClick={(e) => {
+                  // iOS: 제스처 컨텍스트 안에서 즉시 잠금 해제
+                  audioRef.current?.play().catch(() => {});
                   nextTrack();
                   haptic.trigger("light");
                   blurOnClick(e);
@@ -1322,6 +1289,14 @@ export default function MusicPlayer({
           />
         </div>
       )}
+      <LyricsPanel
+        open={isLyricsOpen}
+        onClose={() => setIsLyricsOpen(false)}
+        trackId={currentTrack?.id ?? ""}
+        trackTitle={fallbackTrack?.title ?? ""}
+        trackArtist={typeof fallbackTrack?.artist === "string" ? fallbackTrack.artist : undefined}
+        coverUrl={coverUrl}
+      />
     </>
   );
 }

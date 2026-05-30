@@ -22,17 +22,19 @@ type TracksHandler struct {
 	db         *db.DB
 	storage    storage.Storage
 	transcoder Transcoder
+	dataDir    string
 }
 
 type Transcoder interface {
 	TranscodeVersion(ctx context.Context, input transcoding.TranscodeVersionInput) error
 }
 
-func NewTracksHandler(database *db.DB, storageAdapter storage.Storage, transcoder Transcoder) *TracksHandler {
+func NewTracksHandler(database *db.DB, storageAdapter storage.Storage, transcoder Transcoder, dataDir string) *TracksHandler {
 	return &TracksHandler{
 		db:         database,
 		storage:    storageAdapter,
 		transcoder: transcoder,
+		dataDir:    dataDir,
 	}
 }
 
@@ -69,6 +71,9 @@ type TrackAccessResult struct {
 func CheckTrackAccess(ctx context.Context, db *db.DB, trackID int64, projectID int64, userID int64) (TrackAccessResult, error) {
 	result := TrackAccessResult{}
 	project, err := db.GetProjectByID(ctx, projectID)
+	if err != nil && err != sql.ErrNoRows {
+		return result, fmt.Errorf("failed to query project: %w", err)
+	}
 	if err == nil && project.UserID == userID {
 		result.HasAccess = true
 		result.CanEdit = true
@@ -81,6 +86,9 @@ func CheckTrackAccess(ctx context.Context, db *db.DB, trackID int64, projectID i
 		TrackID:  trackID,
 		SharedTo: userID,
 	})
+	if err != nil && err != sql.ErrNoRows {
+		return result, fmt.Errorf("failed to query track share: %w", err)
+	}
 	if err == nil {
 		result.HasAccess = true
 		result.CanEdit = trackShare.CanEdit
@@ -92,6 +100,9 @@ func CheckTrackAccess(ctx context.Context, db *db.DB, trackID int64, projectID i
 		ProjectID: projectID,
 		SharedTo:  userID,
 	})
+	if err != nil && err != sql.ErrNoRows {
+		return result, fmt.Errorf("failed to query project share: %w", err)
+	}
 	if err == nil {
 		result.HasAccess = true
 		result.CanEdit = projectShare.CanEdit

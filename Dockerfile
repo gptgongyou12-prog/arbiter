@@ -33,7 +33,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM docker.io/library/alpine:latest
 
-RUN apk add --no-cache ca-certificates ffmpeg sqlite wget && \
+RUN apk add --no-cache ca-certificates ffmpeg sqlite wget python3 py3-pip nodejs npm && \
+    npm install -g esbuild && \
+    pip3 install yt-dlp --break-system-packages && \
     addgroup -g 1000 vault && \
     adduser -D -u 1000 -G vault vault
 

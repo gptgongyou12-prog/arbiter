@@ -1,4 +1,4 @@
-import { X, MoreHorizontal, FolderOpen } from "lucide-react";
+import { X, FolderOpen, Trash2 } from "lucide-react";
 import { useAudioPlayer } from "@/contexts/AudioPlayerContext";
 import { AnimatePresence, motion } from "motion/react";
 import { createPortal } from "react-dom";
@@ -11,13 +11,7 @@ import {
 } from "@hello-pangea/dnd";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
+
 import { Button } from "@/components/ui/button";
 
 interface QueuePanelProps {
@@ -64,7 +58,7 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
   const { queue, removeFromQueue, clearQueue, reorderQueue } = useAudioPlayer();
   const navigate = useNavigate();
   const routerState = useRouterState();
-  const [openMenuIndex, setOpenMenuIndex] = useState<number | null>(null);
+
   const queueContentRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState(0);
   const shouldAnimateHeight = useRef(false);
@@ -99,14 +93,11 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
   };
 
   const handleRemoveTrack = (index: number) => {
-    setOpenMenuIndex(null); // Close dropdown menu
     removeFromQueue(index);
   };
 
   const handleGoToProject = (projectId?: string, trackId?: string) => {
     if (projectId) {
-      setOpenMenuIndex(null);
-
       const currentPath = routerState.location.pathname;
       const targetPath = `/project/${projectId}`;
 
@@ -318,51 +309,27 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
                                     </div>
                                   </div>
 
-                                  <div className="shrink-0">
-                                    <DropdownMenu
-                                      open={openMenuIndex === index}
-                                      onOpenChange={(open) =>
-                                        setOpenMenuIndex(open ? index : null)
-                                      }
-                                    >
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon-sm"
-                                          className="h-7 w-7 shrink-0 rounded-lg hover:bg-white/10 transition-all opacity-70 hover:opacity-100"
-                                          onClick={(e) => e.stopPropagation()}
-                                        >
-                                          <MoreHorizontal className="size-4" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent
-                                        align="end"
-                                        className="w-48 border-muted bg-background z-1001"
+                                  <div className="shrink-0 flex items-center gap-1">
+                                    {track.projectId && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        className="h-7 w-7 shrink-0 rounded-lg hover:bg-white/10 transition-all opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                                        title="Go to project"
+                                        onClick={(e) => { e.stopPropagation(); handleGoToProject(track.projectId, track.id); }}
                                       >
-                                        <DropdownMenuItem
-                                          onSelect={() =>
-                                            handleGoToProject(
-                                              track.projectId,
-                                              track.id,
-                                            )
-                                          }
-                                          disabled={!track.projectId}
-                                        >
-                                          <FolderOpen className="ml-1 mr-1.5 size-4.5" />
-                                          Go to project
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          variant="destructive"
-                                          onSelect={() =>
-                                            handleRemoveTrack(index)
-                                          }
-                                        >
-                                          <X className="ml-1 mr-1.5 size-4.5" />
-                                          Remove from queue
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
+                                        <FolderOpen className="size-4" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      className="h-7 w-7 shrink-0 rounded-lg hover:bg-red-500/20 transition-all opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-red-400"
+                                      title="Remove from queue"
+                                      onClick={(e) => { e.stopPropagation(); handleRemoveTrack(index); }}
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
                                   </div>
                                 </div>
                               )}

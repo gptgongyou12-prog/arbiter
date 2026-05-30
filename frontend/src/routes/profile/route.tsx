@@ -55,6 +55,7 @@ function ProfileLayout() {
         email: user.email,
         is_admin: user.is_admin,
         is_owner: user.is_owner,
+        lite_mode: false,
         created_at: user.created_at,
       }
     : null;

@@ -63,6 +63,7 @@ interface AudioPlayerContextType {
   previousTrack: () => void;
   playFromQueue: () => void;
   seekTo: (time: number) => void;
+  playNext: (track: Track) => void;
   addToQueue: (track: Track) => void;
   addProjectToQueue: (tracks: Track[]) => void;
   removeFromQueue: (index: number) => void;
@@ -127,6 +128,7 @@ export function AudioPlayerProvider({
   const [shareTokenVersion, setShareTokenVersion] = useState(0);
   const waveformCacheRef = useRef<Record<string, string | null>>({});
   const originalQueueRef = useRef<Track[]>([]);
+  const playNextCountRef = useRef<number>(0);
   const isInitialMountRef = useRef(true);
   const lastRestartTimeRef = useRef<number>(0);
   const prevIsShuffledRef = useRef<boolean>(false);
@@ -536,10 +538,11 @@ export function AudioPlayerProvider({
   }, []);
 
   const resume = useCallback(() => {
-    setIsPlaying(true);
     if (audioPlayerRef.current?.audio?.current) {
-      audioPlayerRef.current.audio.current.play();
+      // iOS: play() 먼저 동기 호출 (제스처 컨텍스트 보존)
+      audioPlayerRef.current.audio.current.play().catch(() => {});
     }
+    setIsPlaying(true);
   }, []);
 
   const stop = useCallback(() => {
@@ -573,6 +576,7 @@ export function AudioPlayerProvider({
     if (queue.length > 0) {
       const next = queue[0];
       setQueue((prev) => prev.slice(1));
+      if (playNextCountRef.current > 0) playNextCountRef.current--;
       play(next);
       return;
     }
@@ -717,6 +721,23 @@ export function AudioPlayerProvider({
     setPreviewProgress(progress);
   }, []);
 
+  const playNext = useCallback(
+    (track: Track) => {
+      if (!currentTrack) {
+        play(track, undefined, false);
+        return;
+      }
+      const insertAt = playNextCountRef.current;
+      setQueue((prev) => {
+        const next = [...prev];
+        next.splice(insertAt, 0, track);
+        return next;
+      });
+      playNextCountRef.current++;
+    },
+    [currentTrack, play],
+  );
+
   const addToQueue = useCallback(
     (track: Track) => {
       if (!currentTrack) {
@@ -734,6 +755,9 @@ export function AudioPlayerProvider({
 
   const removeFromQueue = useCallback(
     (index: number) => {
+      if (index < playNextCountRef.current) {
+        playNextCountRef.current = Math.max(0, playNextCountRef.current - 1);
+      }
       setQueue((prev) => {
         const trackToRemove = prev[index];
 
@@ -761,6 +785,7 @@ export function AudioPlayerProvider({
   const clearQueue = useCallback(() => {
     setQueue([]);
     originalQueueRef.current = [];
+    playNextCountRef.current = 0;
   }, []);
 
   const addProjectToQueue = useCallback(
@@ -886,6 +911,18 @@ export function AudioPlayerProvider({
           seekTo(details.seekTime);
         }
       },
+      seekbackward: (details: MediaSessionActionDetails) => {
+        const audio = audioPlayerRef.current?.audio?.current;
+        if (audio) {
+          audio.currentTime = Math.max(0, audio.currentTime - (details.seekOffset ?? 10));
+        }
+      },
+      seekforward: (details: MediaSessionActionDetails) => {
+        const audio = audioPlayerRef.current?.audio?.current;
+        if (audio) {
+          audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + (details.seekOffset ?? 10));
+        }
+      },
     };
 
     Object.entries(handlers).forEach(([action, handler]) => {
@@ -930,6 +967,23 @@ export function AudioPlayerProvider({
       clearInterval(interval);
     };
   }, [currentTrack, duration]);
+
+  // visibilitychange: 탭이 다시 보일 때 audio가 중단된 경우 재생 복원
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      const audio = audioPlayerRef.current?.audio?.current;
+      if (!audio) return;
+      if (isPlaying && audio.paused) {
+        audio.play().catch(() => {});
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isPlaying]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -983,6 +1037,7 @@ export function AudioPlayerProvider({
         previousTrack,
         playFromQueue,
         seekTo,
+        playNext,
         addToQueue,
         addProjectToQueue,
         removeFromQueue,

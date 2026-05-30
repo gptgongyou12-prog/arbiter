@@ -33,6 +33,8 @@ func mapAuthError(err error) error {
 		return apperr.NewUnauthorized("invalid credentials")
 	case authsvc.ErrUserExists:
 		return apperr.NewConflict("username or email already exists")
+	case authsvc.ErrEmailExists:
+		return apperr.NewConflict("email already registered")
 	case authsvc.ErrInvalidToken:
 		return apperr.NewUnauthorized("invalid or expired token")
 	case authsvc.ErrTokenUsed:

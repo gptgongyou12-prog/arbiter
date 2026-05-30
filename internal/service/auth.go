@@ -14,6 +14,7 @@ import (
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrEmailExists        = errors.New("email already registered")
 	ErrUserExists         = errors.New("username or email already exists")
 	ErrInvalidToken       = errors.New("invalid or expired token")
 	ErrTokenUsed          = errors.New("token already used")
@@ -228,7 +229,7 @@ func (s *authService) RegisterWithInvite(ctx context.Context, input RegisterWith
 
 	_, err = qtx.GetUserByEmail(ctx, input.Email)
 	if err == nil {
-		return nil, errors.New("email is already registered")
+		return nil, ErrEmailExists
 	}
 	if err != sql.ErrNoRows {
 		return nil, err

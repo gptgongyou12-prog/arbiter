@@ -38,6 +38,9 @@ import { useScrollToTrack } from "@/hooks/useScrollToTrack";
 import { useProjectEditing } from "@/hooks/useProjectEditing";
 import { ProjectModals } from "@/components/ProjectModals";
 import { ProjectTrackList } from "@/components/ProjectTrackList";
+import YoutubeImportModal from "@/components/modals/YoutubeImportModal";
+import { TrackCoverPickerModal } from "@/components/modals/TrackCoverPickerModal";
+import { TrackLyricsModal } from "@/components/modals/TrackLyricsModal";
 import {
   mapTrackToPlayerTrack,
   mapTracksToPlayerTracks,
@@ -128,6 +131,9 @@ function ProjectPageContent({ projectId }: { projectId: string }) {
     null,
   );
   const [isNotesOpen, setIsNotesOpen] = useState(false);
+  const [isYoutubeModalOpen, setIsYoutubeModalOpen] = useState(false);
+  const [coverPickerTrack, setCoverPickerTrack] = useState<Track | null>(null);
+  const [lyricsTrack, setLyricsTrack] = useState<Track | null>(null);
   const [notesTrack, setNotesTrack] = useState<Track | null>(null);
   const [_isDragging, setIsDragging] = useState(false);
 
@@ -812,6 +818,9 @@ function ProjectPageContent({ projectId }: { projectId: string }) {
               handleTrackDrop={fileDrag.handleTrackDrop}
               onMoreClick={handleMoreClick}
               isDraggable={!!canEditProject}
+              onYoutubeImport={() => setIsYoutubeModalOpen(true)}
+              onChangeCover={(t) => setCoverPickerTrack(t)}
+              onShowLyrics={(t) => setLyricsTrack(t)}
             />
 
             <input
@@ -867,6 +876,25 @@ function ProjectPageContent({ projectId }: { projectId: string }) {
         }}
       />
 
+      <TrackCoverPickerModal
+        open={!!coverPickerTrack}
+        onClose={() => setCoverPickerTrack(null)}
+        trackId={coverPickerTrack?.public_id ?? ""}
+        trackTitle={coverPickerTrack?.title ?? ""}
+        onChanged={() => queryClient.invalidateQueries({ queryKey: trackKeys.list(project.id) })}
+      />
+      <TrackLyricsModal
+        open={!!lyricsTrack}
+        onClose={() => setLyricsTrack(null)}
+        trackId={lyricsTrack?.public_id ?? ""}
+        trackTitle={lyricsTrack?.title ?? ""}
+      />
+      <YoutubeImportModal
+        isOpen={isYoutubeModalOpen}
+        onClose={() => setIsYoutubeModalOpen(false)}
+        projectId={projectId}
+        onImported={() => queryClient.invalidateQueries({ queryKey: trackKeys.list(project.id) })}
+      />
       <ProjectModals
         selectedTrack={selectedTrack}
         trackDetailsData={trackDetailsData}

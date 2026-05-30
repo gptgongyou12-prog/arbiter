@@ -56,14 +56,12 @@ function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-[#181818] p-4">
       <div className="w-full max-w-[500px]">
         <motion.div
-          layout
           initial={{ opacity: 0, y: 5, filter: "blur(8px)" }}
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
           transition={{
             opacity: { duration: 0.25, ease: [0.4, 0, 0.2, 1] },
             y: { duration: 0.25, ease: [0.4, 0, 0.2, 1] },
             filter: { duration: 0.25, ease: [0.4, 0, 0.2, 1] },
-            layout: { type: "spring", stiffness: 400, damping: 25 },
           }}
           className="border border-[#353333] rounded-[45px] px-10 py-12"
           style={{

@@ -1,5 +1,5 @@
 import type React from "react";
-import { Search, X, PlusIcon } from "lucide-react";
+import { Search, X, PlusIcon, Youtube } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "motion/react";
@@ -50,6 +50,9 @@ interface ProjectTrackListProps {
 
   onMoreClick: (track: Track) => void;
   isDraggable: boolean;
+  onYoutubeImport: () => void;
+  onChangeCover: (track: Track) => void;
+  onShowLyrics: (track: Track) => void;
 }
 
 export function ProjectTrackList({
@@ -80,6 +83,9 @@ export function ProjectTrackList({
   handleTrackDrop,
   onMoreClick,
   isDraggable,
+  onYoutubeImport,
+  onChangeCover,
+  onShowLyrics,
 }: ProjectTrackListProps) {
   return (
     <>
@@ -151,15 +157,27 @@ export function ProjectTrackList({
       </AnimatePresence>
 
       {canEdit && (
-        <Button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          haptic="medium"
-          className="w-full mb-6 h-12 text-base font-semibold active:scale-99"
-        >
-          <PlusIcon className="size-5 mr-2" />
-          {isUploading ? "Uploading..." : "Add Tracks"}
-        </Button>
+        <div className="flex gap-2 mb-6">
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            haptic="medium"
+            className="flex-1 h-12 text-base font-semibold active:scale-99"
+          >
+            <PlusIcon className="size-5 mr-2" />
+            {isUploading ? "Uploading..." : "Add Tracks"}
+          </Button>
+          <Button
+            onClick={onYoutubeImport}
+            disabled={isUploading}
+            haptic="medium"
+            variant="outline"
+            className="h-12 px-4 active:scale-99 border-white/10 bg-white/5 hover:bg-white/10"
+            title="YouTube에서 가져오기"
+          >
+            <Youtube className="size-5 text-red-400" />
+          </Button>
+        </div>
       )}
 
       {tracks.length === 0 ? (
@@ -224,6 +242,9 @@ export function ProjectTrackList({
                       }
                       onClick={() => onTrackClick(track)}
                       onMoreClick={() => onMoreClick(track)}
+                coverUrl={track.cover_url}
+                onChangeCover={() => onChangeCover(track)}
+                onShowLyrics={() => onShowLyrics(track)}
                       isShared={track.visibility_status === "public"}
                       isSharedWithUsers={
                         (track as any).is_shared && !(project as any).is_shared

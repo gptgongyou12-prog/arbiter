@@ -19,6 +19,7 @@ type PreferencesResponse struct {
 	ColorSpread        *int      `json:"color_spread,omitempty"`
 	GradientSpread     *int      `json:"gradient_spread,omitempty"`
 	ColorShiftRotation *int      `json:"color_shift_rotation,omitempty"`
+	LiteMode           bool      `json:"lite_mode"`
 	CreatedAt          string    `json:"created_at"`
 	UpdatedAt          string    `json:"updated_at"`
 }
@@ -35,6 +36,7 @@ func toPreferencesResponse(prefs sqlc.UserPreference) PreferencesResponse {
 	resp := PreferencesResponse{
 		UserID:         prefs.UserID,
 		DefaultQuality: prefs.DefaultQuality,
+		LiteMode:       prefs.LiteMode != 0,
 		CreatedAt:      prefs.CreatedAt.Time.Format(time.RFC3339),
 		UpdatedAt:      prefs.UpdatedAt.Time.Format(time.RFC3339),
 	}
@@ -127,8 +129,22 @@ func (h *PreferencesHandler) UpdatePreferences(w http.ResponseWriter, r *http.Re
 		params.GradientSpread = sql.NullInt64{Int64: int64(*req.GradientSpread), Valid: true}
 	}
 
+	if req.LiteMode != nil {
+		v := int64(0)
+		if *req.LiteMode {
+			v = 1
+		}
+		params.LiteMode = sql.NullInt64{Int64: v, Valid: true}
+	}
+
 	if req.ColorShiftRotation != nil {
 		params.ColorShiftRotation = sql.NullInt64{Int64: int64(*req.ColorShiftRotation), Valid: true}
+	}
+
+	if req.LiteMode != nil {
+		v := int64(0)
+		if *req.LiteMode { v = 1 }
+		params.LiteMode = sql.NullInt64{Int64: v, Valid: true}
 	}
 
 	prefs, err := h.db.UpdateUserPreferences(ctx, params)

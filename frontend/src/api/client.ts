@@ -15,8 +15,8 @@ export class ApiError extends Error {
 
 export interface RequestOptions extends RequestInit {
   requiresAuth?: boolean
+  _isRetry?: boolean
 }
-
 
 function getCookieValue(name: string): string | null {
 	if (typeof document === 'undefined') return null
@@ -28,11 +28,32 @@ export function getCSRFToken(): string | null {
 	return getCookieValue('csrf_token')
 }
 
+// 동시 다중 요청이 401을 받을 때 refresh를 한 번만 실행하도록 보장
+let refreshingPromise: Promise<void> | null = null
+
+async function tryRefresh(): Promise<void> {
+  if (!refreshingPromise) {
+    refreshingPromise = fetch(`${API_BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({}),
+    }).then(async (res) => {
+      refreshingPromise = null
+      if (!res.ok) throw new ApiError('Refresh failed', res.status)
+    }).catch((e) => {
+      refreshingPromise = null
+      throw e
+    })
+  }
+  return refreshingPromise
+}
+
 async function apiClient<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { requiresAuth = true, headers = {}, ...restOptions } = options
+  const { requiresAuth = true, _isRetry = false, headers = {}, ...restOptions } = options
 
   const url = `${API_BASE_URL}${endpoint}`
 
@@ -59,12 +80,27 @@ async function apiClient<T>(
 		})
 
 		if (response.status === 401) {
-			if (!endpoint.startsWith('/api/auth/me') && !endpoint.startsWith('/api/auth/refresh')) {
-				const pathname = window.location.pathname
-				if (!pathname.includes('/login') && !pathname.includes('/share/')) {
-					window.location.href = '/login'
-				}
-			}
+      // auth 엔드포인트는 refresh 시도 없이 바로 throw
+      const isAuthEndpoint = endpoint.startsWith('/api/auth/')
+      if (!isAuthEndpoint && !_isRetry) {
+        try {
+          await tryRefresh()
+          // refresh 성공 → 원래 요청 재시도 (페이지 새로고침 없이)
+          return apiClient<T>(endpoint, { ...options, _isRetry: true })
+        } catch {
+          // refresh 실패 → 이제 로그인으로
+          const pathname = window.location.pathname
+          if (!pathname.includes('/login') && !pathname.includes('/share/')) {
+            window.location.href = '/login'
+          }
+        }
+      } else if (!isAuthEndpoint && _isRetry) {
+        // 재시도에서도 401 → 로그인으로
+        const pathname = window.location.pathname
+        if (!pathname.includes('/login') && !pathname.includes('/share/')) {
+          window.location.href = '/login'
+        }
+      }
 			throw new ApiError('Unauthorized', 401)
 		}
 
@@ -141,5 +177,3 @@ export async function patch<T>(
     body: data ? JSON.stringify(data) : undefined,
   })
 }
-
-// debugAuth helpers removed with cookie-based auth

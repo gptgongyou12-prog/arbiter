@@ -7,6 +7,7 @@ export interface UserResponse {
   email: string
   is_admin: boolean
   is_owner: boolean
+  lite_mode: boolean
   created_at: string
 }
 
@@ -50,6 +51,10 @@ export async function renameUser(userId: number, username: string): Promise<User
 
 export async function deleteUser(userId: number): Promise<void> {
   return del(`/api/admin/users/${userId}`)
+}
+
+export async function setUserLiteMode(userId: number, liteMode: boolean): Promise<{ lite_mode: boolean }> {
+  return put<{ lite_mode: boolean }>(`/api/admin/users/${userId}/lite-mode`, { lite_mode: liteMode })
 }
 
 export async function createResetLink(userId: number): Promise<CreateResetLinkResponse> {

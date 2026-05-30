@@ -19,6 +19,7 @@ import {
   Pencil,
   Search,
   ChevronLeft,
+  Smartphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -145,6 +146,20 @@ export function UserManagementModal({
         refreshUser();
       }
     },
+  });
+
+  const liteModeM = useMutation({
+    mutationFn: ({ userId, liteMode }: { userId: number; liteMode: boolean }) =>
+      adminApi.setUserLiteMode(userId, liteMode),
+    onSuccess: (_, { userId, liteMode }) => {
+      queryClient.setQueryData(
+        ["admin", "users"],
+        (old: adminApi.UserResponse[] | undefined) =>
+          old?.map((u) => (u.id === userId ? { ...u, lite_mode: liteMode } : u)),
+      );
+      toast.success(liteMode ? "Lite mode enabled" : "Lite mode disabled");
+    },
+    onError: () => toast.error("Failed to update lite mode"),
   });
 
   const createResetLinkMutation = useMutation({
@@ -430,6 +445,9 @@ export function UserManagementModal({
                               onRenameChange={setNewUsername}
                               onRenameSave={() => handleRenameUser(user.id)}
                               onRenameCancel={() => setRenamingUserId(null)}
+                              onToggleLiteMode={() =>
+                                liteModeM.mutate({ userId: user.id, liteMode: !user.lite_mode })
+                              }
                               isDeleteMutating={deleteUserMutation.isPending}
                               isUpdateRoleMutating={
                                 updateRoleMutation.isPending
@@ -696,6 +714,7 @@ interface UserCardProps {
   user: adminApi.UserResponse;
   currentUser: any;
   onToggleAdmin: () => void;
+  onToggleLiteMode: () => void;
   onDelete: () => void;
   onCreateResetLink: () => void;
   onRenameClick: () => void;
@@ -713,6 +732,7 @@ function UserCard({
   user,
   currentUser,
   onToggleAdmin,
+  onToggleLiteMode,
   onDelete,
   onCreateResetLink,
   onRenameClick,
@@ -886,6 +906,27 @@ function UserCard({
             >
               <RotateCcw className="size-4 mr-2 text-[#6a6a6a]" />
               {isCreateResetMutating ? "Generating..." : "Reset Password"}
+            </DropdownMenuItem>
+
+            <DropdownMenuItem
+              onClick={onToggleLiteMode}
+              className="text-white hover:bg-white/5 cursor-pointer rounded-lg mx-1"
+              onSelect={(e) => e.preventDefault()}
+            >
+              <Smartphone className="size-4 mr-2 text-[#6a6a6a]" />
+              <span className="flex-1">Lite Mode</span>
+              {/* Toggle switch */}
+              <div
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${
+                  user.lite_mode ? "bg-violet-500" : "bg-white/15"
+                }`}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${
+                    user.lite_mode ? "translate-x-4" : "translate-x-1"
+                  }`}
+                />
+              </div>
             </DropdownMenuItem>
 
             {!user.is_owner && (

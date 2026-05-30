@@ -1,8 +1,16 @@
 package handlers
 
 import (
+	"strings"
+	"log/slog"
 	"database/sql"
+	"fmt"
+	"encoding/json"
 	"net/http"
+	"os"
+	"os/exec"
+	"syscall"
+	"path/filepath"
 	"time"
 
 	"bungleware/vault/internal/apperr"
@@ -15,12 +23,14 @@ import (
 type AdminHandler struct {
 	db         *db.DB
 	authConfig auth.Config
+	dataDir    string
 }
 
-func NewAdminHandler(database *db.DB, authConfig auth.Config) *AdminHandler {
+func NewAdminHandler(database *db.DB, authConfig auth.Config, dataDir string) *AdminHandler {
 	return &AdminHandler{
 		db:         database,
 		authConfig: authConfig,
+		dataDir:    dataDir,
 	}
 }
 
@@ -81,12 +91,17 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) error {
 
 	userResponses := make([]UserResponse, 0, len(users))
 	for _, u := range users {
+		var liteMode bool
+		if prefs, pErr := h.db.GetUserPreferences(ctx, u.ID); pErr == nil {
+			liteMode = prefs.LiteMode != 0
+		}
 		userResponses = append(userResponses, UserResponse{
 			ID:        u.ID,
 			Username:  u.Username,
 			Email:     u.Email,
 			IsAdmin:   u.IsAdmin,
 			IsOwner:   u.IsOwner,
+			LiteMode:  liteMode,
 			CreatedAt: u.CreatedAt.Time,
 		})
 	}
@@ -220,10 +235,6 @@ func (h *AdminHandler) RenameUser(w http.ResponseWriter, r *http.Request) error 
 
 	if req.Username == "" {
 		return apperr.NewBadRequest("username is required")
-	}
-
-	if int64(adminID) != req.UserID {
-		return apperr.NewForbidden("users can only rename themselves")
 	}
 
 	user, err := h.db.Queries.UpdateUsername(ctx, sqlc.UpdateUsernameParams{
@@ -370,6 +381,7 @@ type UserResponse struct {
 	Email     string    `json:"email"`
 	IsAdmin   bool      `json:"is_admin"`
 	IsOwner   bool      `json:"is_owner"`
+	LiteMode  bool      `json:"lite_mode"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -389,4 +401,173 @@ type RenameUserRequest struct {
 
 type CreateResetLinkRequest struct {
 	UserID int64 `json:"user_id"`
+}
+
+
+// SetUserLiteMode sets lite_mode for a specific user (admin only)
+func (h *AdminHandler) SetUserLiteMode(w http.ResponseWriter, r *http.Request) error {
+	adminID, err := httputil.RequireUserID(r)
+	if err != nil {
+		return apperr.NewUnauthorized("unauthorized")
+	}
+
+	ctx := r.Context()
+
+	admin, err := h.db.Queries.GetUserByID(ctx, int64(adminID))
+	if err != nil || !admin.IsAdmin {
+		return apperr.NewForbidden("admin only")
+	}
+
+	targetIDStr := r.PathValue("id")
+	if targetIDStr == "" {
+		return apperr.NewBadRequest("missing user id")
+	}
+	var targetID int64
+	if _, scanErr := fmt.Sscanf(targetIDStr, "%d", &targetID); scanErr != nil {
+		return apperr.NewBadRequest("invalid user id")
+	}
+
+	type liteModeReq struct {
+		LiteMode bool `json:"lite_mode"`
+	}
+	req, err := httputil.DecodeJSON[liteModeReq](r)
+	if err != nil {
+		return apperr.NewBadRequest("invalid body")
+	}
+
+	v := int64(0)
+	if req.LiteMode {
+		v = 1
+	}
+	_, err = h.db.UpdateUserPreferences(ctx, sqlc.UpdateUserPreferencesParams{
+		UserID:   targetID,
+		LiteMode: sql.NullInt64{Int64: v, Valid: true},
+	})
+	if err != nil {
+		return apperr.NewInternal("failed to update", err)
+	}
+	return httputil.OKResult(w, map[string]bool{"lite_mode": req.LiteMode})
+}
+
+type AdminNotification struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
+	Time    string `json:"time"`
+	Type    string `json:"type"`
+}
+
+// GetAdminNotifications returns pending system notifications for admins.
+func (h *AdminHandler) GetAdminNotifications(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httputil.RequireUserID(r)
+	if err != nil {
+		return apperr.NewUnauthorized("unauthorized")
+	}
+	ctx := r.Context()
+	user, err := h.db.Queries.GetUserByID(ctx, int64(userID))
+	if err != nil || !user.IsAdmin {
+		return apperr.NewForbidden("admin access required")
+	}
+	notifPath := filepath.Join(h.dataDir, "admin_notifications.json")
+	data, err := os.ReadFile(notifPath)
+	if os.IsNotExist(err) {
+		return httputil.OKResult(w, []AdminNotification{})
+	}
+	if err != nil {
+		return apperr.NewInternal("failed to read notifications", err)
+	}
+	var items []AdminNotification
+	if err := json.Unmarshal(data, &items); err != nil {
+		slog.Debug("failed to parse admin notifications", "error", err)
+	}
+	if items == nil {
+		items = []AdminNotification{}
+	}
+	return httputil.OKResult(w, items)
+}
+
+// ClearAdminNotifications deletes all pending notifications.
+func (h *AdminHandler) ClearAdminNotifications(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httputil.RequireUserID(r)
+	if err != nil {
+		return apperr.NewUnauthorized("unauthorized")
+	}
+	ctx := r.Context()
+	user, err := h.db.Queries.GetUserByID(ctx, int64(userID))
+	if err != nil || !user.IsAdmin {
+		return apperr.NewForbidden("admin access required")
+	}
+	notifPath := filepath.Join(h.dataDir, "admin_notifications.json")
+	_ = os.Remove(notifPath)
+	return httputil.OKResult(w, map[string]string{"status": "ok"})
+}
+
+// GetSystemInfo returns CPU temperature and disk usage for admins.
+func (h *AdminHandler) GetSystemInfo(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httputil.RequireUserID(r)
+	if err != nil {
+		return apperr.NewUnauthorized("unauthorized")
+	}
+	ctx := r.Context()
+	user, err := h.db.Queries.GetUserByID(ctx, int64(userID))
+	if err != nil || !user.IsAdmin {
+		return apperr.NewForbidden("admin access required")
+	}
+
+	// CPU 온도
+	tempMillis := int64(0)
+	if data, err := os.ReadFile("/sys/class/thermal/thermal_zone0/temp"); err == nil {
+		fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &tempMillis)
+	}
+	tempC := float64(tempMillis) / 1000.0
+
+	// 메인 디스크 사용량
+	mainDisk := getDiskUsage("/")
+	usbDisk := getDiskUsage("/mnt/vault-usb")
+
+	return httputil.OKResult(w, map[string]interface{}{
+		"cpu_temp_c":     tempC,
+		"main_disk":      mainDisk,
+		"usb_disk":       usbDisk,
+	})
+}
+
+type DiskInfo struct {
+	Total     uint64  `json:"total"`
+	Used      uint64  `json:"used"`
+	Avail     uint64  `json:"avail"`
+	UsedPct   float64 `json:"used_pct"`
+}
+
+func getDiskUsage(path string) *DiskInfo {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return nil
+	}
+	total := stat.Blocks * uint64(stat.Bsize)
+	avail := stat.Bavail * uint64(stat.Bsize)
+	used  := total - avail
+	pct   := 0.0
+	if total > 0 {
+		pct = float64(used) / float64(total) * 100
+	}
+	return &DiskInfo{Total: total, Used: used, Avail: avail, UsedPct: pct}
+}
+
+// RunOptimize triggers the optimize script for admins.
+func (h *AdminHandler) RunOptimize(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httputil.RequireUserID(r)
+	if err != nil {
+		return apperr.NewUnauthorized("unauthorized")
+	}
+	ctx := r.Context()
+	user, err := h.db.Queries.GetUserByID(ctx, int64(userID))
+	if err != nil || !user.IsAdmin {
+		return apperr.NewForbidden("admin access required")
+	}
+	cmd := exec.Command("/bin/bash", "/home/lee/scripts/optimize.sh")
+	if err := cmd.Start(); err != nil {
+		return apperr.NewInternal("failed to start optimize script", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return httputil.OKResult(w, map[string]string{"status": "started"})
 }
