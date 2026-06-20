@@ -85,6 +85,8 @@ function isPlaylistURL(url: string): boolean {
   if (/[?&]list=/.test(url) && !/[?&]v=/.test(url)) return true;
   if (/youtube\.com\/playlist/.test(url)) return true;
   if (/soundcloud\.com\/[^/?#]+\/sets\/[^/?#]+/.test(url)) return true;
+  if (/soundcloud\.com\/[^/?#]+$/.test(url)) return true; // user page (all tracks)
+  if (/soundcloud\.com\/[^/?#]+\/likes/.test(url)) return true; // likes page
   return false;
 }
 
@@ -92,8 +94,8 @@ async function searchMedia(query: string, source: Source): Promise<MediaSearchRe
   return post<MediaSearchResult[]>("/api/library/youtube/search", { query, source });
 }
 
-async function importSingle(url: string, projectId: string, title?: string): Promise<Track> {
-  return post<Track>("/api/library/youtube/import", { url, project_id: projectId, title });
+async function startMediaImport(url: string, projectId: string, title?: string): Promise<{ job_id: string }> {
+  return post<{ job_id: string }>("/api/library/youtube/import/start", { url, project_id: projectId, title });
 }
 
 async function getPlaylistInfo(url: string, projectId: string): Promise<PlaylistInfo> {
@@ -543,8 +545,8 @@ export default function YoutubeImportModal({
     if (importingId) return;
     setImportingId(result.video_id);
     try {
-      await importSingle(result.url, projectId, result.title);
-      toast.success(`"${result.title}" 가져오기 완료!`);
+      const { job_id } = await startMediaImport(result.url, projectId, result.title);
+      startJob(job_id, result.title, "media");
       onImported?.();
       onClose();
     } catch (e: any) {
@@ -552,14 +554,14 @@ export default function YoutubeImportModal({
     } finally {
       setImportingId(null);
     }
-  }, [importingId, projectId, onImported, onClose]);
+  }, [importingId, projectId, startJob, onImported, onClose]);
 
   const handleImportURL = useCallback(async () => {
     if (!urlInput.trim() || importingId) return;
     setImportingId("url");
     try {
-      const track = await importSingle(urlInput.trim(), projectId);
-      toast.success(`"${track.title}" 가져오기 완료!`);
+      const { job_id } = await startMediaImport(urlInput.trim(), projectId);
+      startJob(job_id, urlInput.trim(), "media");
       onImported?.();
       onClose();
     } catch (e: any) {
@@ -567,7 +569,7 @@ export default function YoutubeImportModal({
     } finally {
       setImportingId(null);
     }
-  }, [urlInput, importingId, projectId, onImported, onClose]);
+  }, [urlInput, importingId, projectId, startJob, onImported, onClose]);
 
   const handleImportPlaylist = useCallback(async () => {
     if (!urlInput.trim() || isImportingPlaylist) return;

@@ -7,11 +7,15 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"bungleware/vault/internal/apperr"
 	"regexp"
 	"bungleware/vault/internal/httputil"
 )
+
+var lyricsHTTPClient = &http.Client{Timeout: 6 * time.Second}
 
 type SetLyricsRequest struct {
 	Lyrics string `json:"lyrics"`
@@ -119,7 +123,7 @@ func itunesResolve(artist, title string) (string, string) {
 	}
 	u := fmt.Sprintf("https://itunes.apple.com/search?term=%s&entity=song&limit=3&media=music",
 		url.QueryEscape(query))
-	resp, err := http.Get(u) //nolint:noctx
+	resp, err := lyricsHTTPClient.Get(u) //nolint:noctx
 	if err != nil {
 		return artist, title
 	}
@@ -154,7 +158,7 @@ func fetchLrclib(artist, title string) (*lrclibResult, error) {
 	queries = append(queries, "https://lrclib.net/api/search?"+q3.Encode())
 
 	for _, apiURL := range queries {
-		resp, err := http.Get(apiURL) //nolint:noctx
+		resp, err := lyricsHTTPClient.Get(apiURL) //nolint:noctx
 		if err != nil || resp.StatusCode != 200 {
 			if resp != nil {
 				resp.Body.Close()
@@ -308,46 +312,55 @@ func fetchLrclibBest(artist, title, album string, durationSec float64) (*lrclibF
 	q4.Set("q", normTitle)
 	attempts = append(attempts, "https://lrclib.net/api/search?"+q4.Encode())
 
+	// 병렬로 모든 attempt 동시 조회 (순차 호출 대비 속도 개선)
+	type attemptResult struct {
+		valid []lrclibFullResult
+	}
+	resultsCh := make(chan attemptResult, len(attempts))
+	var wg sync.WaitGroup
 	for _, apiURL := range attempts {
-		resp, err := http.Get(apiURL) //nolint:noctx
-		if err != nil {
-			continue
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != 200 {
-			continue
-		}
-		var results []lrclibFullResult
-		if err := json.Unmarshal(body, &results); err != nil || len(results) == 0 {
-			continue
-		}
-
-		// 가사 있는 결과만 필터
-		var valid []lrclibFullResult
-		for _, r := range results {
-			if r.PlainLyrics != "" || r.SyncedLyrics != "" || r.Instrumental {
-				valid = append(valid, r)
+		wg.Add(1)
+		go func(u string) {
+			defer wg.Done()
+			resp, err := lyricsHTTPClient.Get(u) //nolint:noctx
+			if err != nil {
+				resultsCh <- attemptResult{}
+				return
 			}
-		}
-		if len(valid) == 0 {
-			continue
-		}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != 200 {
+				resultsCh <- attemptResult{}
+				return
+			}
+			var results []lrclibFullResult
+			if err := json.Unmarshal(body, &results); err != nil || len(results) == 0 {
+				resultsCh <- attemptResult{}
+				return
+			}
+			var valid []lrclibFullResult
+			for _, r := range results {
+				if r.PlainLyrics != "" || r.SyncedLyrics != "" || r.Instrumental {
+					valid = append(valid, r)
+				}
+			}
+			resultsCh <- attemptResult{valid: valid}
+		}(apiURL)
+	}
+	wg.Wait()
+	close(resultsCh)
 
-		best := valid[0]
-		bestScore := -1.0
-
-		for _, r := range valid {
+	var best *lrclibFullResult
+	bestScore := -1.0
+	for ar := range resultsCh {
+		for _, r := range ar.valid {
 			score := 0.0
-			// synced lyrics 보너스
 			if r.SyncedLyrics != "" {
 				score += 10
 			}
-			// 앨범명 일치 보너스
 			if album != "" && strings.EqualFold(normalizeForSearch(r.AlbumName), normAlbum) {
 				score += 5
 			}
-			// duration 근접도 보너스 (10초 이내)
 			if durationSec > 0 && r.Duration > 0 {
 				diff := r.Duration - durationSec
 				if diff < 0 {
@@ -359,13 +372,15 @@ func fetchLrclibBest(artist, title, album string, durationSec float64) (*lrclibF
 			}
 			if score > bestScore {
 				bestScore = score
-				best = r
+				rCopy := r
+				best = &rCopy
 			}
 		}
-
-		return &best, nil
 	}
-	return nil, nil
+	if best == nil {
+		return nil, nil
+	}
+	return best, nil
 }
 
 type ItunesSearchRequest struct {
@@ -393,7 +408,7 @@ func (h *TracksHandler) SearchItunesLyrics(w http.ResponseWriter, r *http.Reques
 	}
 	u := fmt.Sprintf("https://itunes.apple.com/search?term=%s&entity=song&limit=6&media=music",
 		url.QueryEscape(strings.TrimSpace(req.Query)))
-	resp, err := http.Get(u) //nolint:noctx
+	resp, err := lyricsHTTPClient.Get(u) //nolint:noctx
 	if err != nil {
 		return apperr.NewInternal("failed to reach iTunes", err)
 	}
@@ -435,7 +450,7 @@ func (h *TracksHandler) FetchLrclibLyrics(w http.ResponseWriter, r *http.Request
 	// trackId가 있으면 iTunes Lookup으로 정확한 메타데이터 가져오기
 	if req.TrackId > 0 {
 		lookupURL := fmt.Sprintf("https://itunes.apple.com/lookup?id=%d", req.TrackId)
-		resp, err := http.Get(lookupURL) //nolint:noctx
+		resp, err := lyricsHTTPClient.Get(lookupURL) //nolint:noctx
 		if err == nil {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()

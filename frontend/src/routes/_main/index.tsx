@@ -3,6 +3,7 @@ import { useProjects, useCreateProject } from "@/hooks/useProjects";
 import { useFolders, useCreateFolder } from "@/hooks/useFolders";
 import DraggableProjectGrid from "@/components/DraggableProjectGrid";
 import MorphingAddButton from "@/components/MorphingAddButton";
+import { TimelineImportModal } from "@/components/modals/TimelineImportModal";
 import { toast } from "@/routes/__root";
 import { useState, useEffect, useMemo } from "react";
 import { useAudioPlayer } from "@/contexts/AudioPlayerContext";
@@ -136,6 +137,7 @@ function App() {
   const navigate = useNavigate();
   const { currentTrack, queue } = useAudioPlayer();
   const [showContent, setShowContent] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
 
   const allProjects = useMemo(() => {
     const list = projects || [];
@@ -179,7 +181,7 @@ function App() {
 
   if (!isLoading && error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-[#111]">
         <div className="text-center">
           <p className="text-red-400">Error loading projects</p>
           <p className="text-gray-400 text-sm mt-2">{error.message}</p>
@@ -189,7 +191,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[#111]">
       <div className="mx-auto max-w-4xl px-6 md:pt-10 pt-30 pb-12">
         <div className={cn("transition-opacity duration-300", showContent ? "opacity-100" : "opacity-0")}>
           {historyData.length > 0 && (
@@ -229,15 +231,17 @@ function App() {
         <MorphingAddButton
           onAddProject={handleCreateProject}
           onAddFolder={handleCreateFolder}
+          onAddTimeline={() => setShowTimeline(true)}
           isCreatingProject={createProject.isPending}
           isCreatingFolder={createFolder.isPending}
           className={cn("transition-all duration-100", showContent ? "opacity-100" : "opacity-0")}
           bottomOffset={
             currentTrack || queue.length > 0
-              ? "bottom-[130px] sm:bottom-[145px]"
-              : "bottom-8"
+              ? "bottom-[148px] sm:bottom-[163px]"
+              : "bottom-20"
           }
         />
+        <TimelineImportModal isOpen={showTimeline} onClose={() => setShowTimeline(false)} />
       </div>
     </div>
   );

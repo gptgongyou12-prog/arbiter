@@ -376,6 +376,8 @@ func main() {
 
 	mux.Handle("POST /api/library/upload", authMW(httputil.Wrap(tracksHandler.UploadTrack)))
 	mux.Handle("POST /api/library/youtube/import", authMW(httputil.Wrap(tracksHandler.ImportMediaTrack)))
+	mux.Handle("POST /api/library/youtube/import/start", authMW(httputil.Wrap(tracksHandler.StartMediaImport)))
+	mux.Handle("GET /api/library/youtube/import/status/{jobId}", authMW(httputil.Wrap(tracksHandler.GetMediaImportStatus)))
 	mux.Handle("POST /api/library/youtube/search", authMW(httputil.Wrap(tracksHandler.SearchMedia)))
 	mux.Handle("POST /api/library/playlist/info", authMW(httputil.Wrap(tracksHandler.GetPlaylistInfo)))
 	mux.Handle("POST /api/library/playlist/import", authMW(httputil.Wrap(tracksHandler.ImportPlaylist)))
@@ -457,6 +459,7 @@ func main() {
 	kboHandler := handlers.NewKBOHandler()
 	reportHandler := handlers.NewReportHandler(database, config.VAPIDPublicKey, config.VAPIDPrivateKey)
 	historyHandler := handlers.NewHistoryHandler(database)
+	playEventsHandler := handlers.NewPlayEventsHandler(database)
 	playlistsHandler := handlers.NewPlaylistsHandler(database)
 	mux.Handle("GET /api/files", authMW(httputil.Wrap(filesHandler.ListFiles)))
 	mux.Handle("POST /api/files/upload", authMW(httputil.Wrap(filesHandler.UploadFile)))
@@ -488,6 +491,9 @@ func main() {
 	mux.Handle("DELETE /api/videos/{id}", authMW(httputil.Wrap(videosHandler.DeleteVideo)))
 
 	mux.Handle("POST /api/history", authMW(httputil.Wrap(historyHandler.RecordPlay)))
+	mux.Handle("POST /api/play-events", authMW(httputil.Wrap(playEventsHandler.RecordEvent)))
+	mux.Handle("GET /api/play-events/style", authMW(httputil.Wrap(playEventsHandler.GetStyleStats)))
+	mux.Handle("GET /api/play-events/ai-insight", authMW(httputil.Wrap(playEventsHandler.GetAIInsight)))
 	mux.Handle("GET /api/history", authMW(httputil.Wrap(historyHandler.GetHistory)))
 
 	mux.Handle("GET /api/playlists", authMW(httputil.Wrap(playlistsHandler.ListPlaylists)))

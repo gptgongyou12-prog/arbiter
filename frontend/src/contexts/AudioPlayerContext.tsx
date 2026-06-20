@@ -16,6 +16,8 @@ import { getTrack as fetchTrack } from "../api/tracks";
 import { getVersions } from "../api/versions";
 import { preloadCover } from "../hooks/useProjectCoverImage";
 import { recordPlay } from "../api/history";
+import { recordPlayEvent } from "../api/playEvents";
+import type { RecordPlayEventPayload } from "../api/playEvents";
 
 const API_BASE_URL = env.VITE_API_URL || "";
 
@@ -119,6 +121,16 @@ export function AudioPlayerProvider({
     [],
   );
   const audioPlayerRef = useRef<any>(null);
+
+  const playSessionRef = useRef<{
+    trackId: string;
+    startedAt: number;
+    startPositionSecs: number;
+    isAutoplay: boolean;
+    repeatIndex: number;
+    prevTrackId: string | null;
+    consecutiveCount: number;
+  } | null>(null);
   const preloadedTrackIdRef = useRef<string | null>(null);
   const preloadAudioRef = useRef<HTMLAudioElement | null>(null);
   const playRequestIdRef = useRef(0);
@@ -498,11 +510,9 @@ export function AudioPlayerProvider({
         preloadAudioRef.current = null;
       }
 
-      // iOS: preserve user gesture context before async operations
-      // Calling play() synchronously marks the audio element as trusted,
-      // allowing subsequent async play() calls from React effects to work on iOS
+      // Stop current track immediately to prevent 'old track plays for 3s' glitch
       const _iosUnlockEl = audioPlayerRef.current?.audio?.current;
-      if (_iosUnlockEl) _iosUnlockEl.play().catch(() => {});
+      if (_iosUnlockEl) { _iosUnlockEl.pause(); _iosUnlockEl.currentTime = 0; }
 
       let trackToPlay = track;
       trackToPlay = await ensureTrackWaveform(trackToPlay);
@@ -543,6 +553,44 @@ export function AudioPlayerProvider({
       if (autoPlay) {
         recordPlay(track.id).catch(() => {});
       }
+
+      // Start play event session
+      const audio = audioPlayerRef.current?.audio?.current;
+      const startPos = audio ? audio.currentTime : 0;
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      const prev = playSessionRef.current;
+      const consecutiveCount =
+        prev && prev.trackId === track.id ? prev.consecutiveCount + 1 : 0;
+
+      // Flush previous session if track changed
+      if (prev && prev.trackId !== track.id && audio) {
+        const elapsed = (Date.now() - prev.startedAt) / 1000;
+        const duration = audio.duration || 1;
+        const completion = Math.min(elapsed / duration, 1.0);
+        const startedDate = new Date(prev.startedAt);
+        const payload: RecordPlayEventPayload = {
+          track_id: prev.trackId,
+          completion_rate: completion,
+          start_position_secs: prev.startPositionSecs,
+          duration_listened_secs: elapsed,
+          device_type: isMobile ? "mobile" : "desktop",
+          is_autoplay: prev.isAutoplay,
+          repeat_index: prev.repeatIndex,
+          hour_of_day: startedDate.getHours(),
+          day_of_week: (startedDate.getDay() + 6) % 7, // Mon=0
+        };
+        recordPlayEvent(payload).catch(() => {});
+      }
+
+      playSessionRef.current = {
+        trackId: track.id,
+        startedAt: Date.now(),
+        startPositionSecs: startPos,
+        isAutoplay: autoPlay,
+        repeatIndex: consecutiveCount,
+        prevTrackId: prev?.trackId ?? null,
+        consecutiveCount,
+      };
 
       setTimeout(() => preloadNextTrack(), 100);
     },
@@ -701,6 +749,21 @@ export function AudioPlayerProvider({
   }, []);
 
   const onEnded = useCallback(() => {
+    const sess = playSessionRef.current;
+    if (sess) {
+      const elapsed = (Date.now() - sess.startedAt) / 1000;
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      const d = new Date(sess.startedAt);
+      recordPlayEvent({
+        track_id: sess.trackId, completion_rate: 1.0,
+        start_position_secs: sess.startPositionSecs,
+        duration_listened_secs: elapsed,
+        device_type: isMobile ? "mobile" : "desktop",
+        is_autoplay: sess.isAutoplay, repeat_index: sess.repeatIndex,
+        hour_of_day: d.getHours(), day_of_week: (d.getDay() + 6) % 7,
+      }).catch(() => {});
+      playSessionRef.current = null;
+    }
     if (loopMode === "track") {
       return;
     }

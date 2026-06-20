@@ -9,6 +9,7 @@ import type { Project } from "@/types/api";
 import fuzzysort from "fuzzysort";
 import { motion, AnimatePresence } from "motion/react";
 import { createPortal } from "react-dom";
+import { useAudioPlayer } from "../contexts/AudioPlayerContext";
 import { useQuery } from "@tanstack/react-query";
 import * as tracksApi from "@/api/tracks";
 import * as sharingApi from "@/api/sharing";
@@ -83,6 +84,7 @@ export default function GlobalSearchModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSearchIndex, setSelectedSearchIndex] = useState(-1);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const { playNext } = useAudioPlayer();
 
   const [showMineOnly, setShowMineOnly] = useState(false);
   const [showType, setShowType] = useState<"all" | "projects" | "tracks">(
@@ -309,6 +311,24 @@ export default function GlobalSearchModal({
     }
   }, [selectedSearchIndex, isOpen]);
 
+  const handlePlayNext = (e: React.MouseEvent, item: any) => {
+    e.stopPropagation();
+    if (item.type !== "track") return;
+    // Build a minimal Track object from search result
+    const track = {
+      id: item.public_id,
+      title: item.title,
+      artist: item.artist,
+      projectId: item.project_public_id,
+      coverUrl: item.cover_url,
+      projectCoverUrl: item.project_cover_url,
+    } as any;
+    playNext(track);
+    onClose();
+    setSearchQuery("");
+    setSelectedSearchIndex(-1);
+  };
+
   const handleItemSelect = (item: any) => {
     onClose();
     setSearchQuery("");
@@ -500,7 +520,7 @@ export default function GlobalSearchModal({
                             )}
 
                             {/* Item info */}
-                            <div className="flex flex-col text-left min-w-0">
+                            <div className="flex flex-col text-left min-w-0 flex-1">
                               <span className="text-base font-semibold text-white line-clamp-1 break-all">
                                 {item.type === "project"
                                   ? item.name
@@ -518,6 +538,16 @@ export default function GlobalSearchModal({
                                     "Unknown Artist"}
                               </span>
                             </div>
+                            {/* Play Next button (track only) */}
+                            {item.type === "track" && (
+                              <button
+                                onClick={(e) => handlePlayNext(e, item)}
+                                className="shrink-0 ml-1 px-2 py-1 rounded-lg text-xs text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+                                title="다음에 재생"
+                              >
+                                +Next
+                              </button>
+                            )}
                           </button>
                         ))}
                       </div>

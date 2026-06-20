@@ -296,6 +296,8 @@ func (s *authService) Login(ctx context.Context, username, password string) (*Us
 		"username", username,
 	)
 
+	go func() { _ = s.db.Queries.UpdateUserLastSeen(context.Background(), user.ID) }()
+
 	return sqlcUserToServiceUser(user), nil
 }
 

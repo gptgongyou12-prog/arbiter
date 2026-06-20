@@ -23,7 +23,7 @@ export function Sidebar({ onSearchOpen }: SidebarProps) {
   const { data: playlists = [] } = useQuery({
     queryKey: ['playlists'],
     queryFn: listPlaylists,
-    staleTime: 30 * 1000,
+    staleTime: 3 * 60 * 1000,
   })
 
   const isActive = (to: string) =>

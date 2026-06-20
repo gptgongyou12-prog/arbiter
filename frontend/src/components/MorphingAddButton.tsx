@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, FolderPlus, FilePlus } from "lucide-react";
+import { Plus, FolderPlus, FilePlus, Scissors } from "lucide-react";
 import { useWebHaptics } from "web-haptics/react";
 
 interface MorphingAddButtonProps {
   onAddProject: () => void;
   onAddFolder: () => void;
+  onAddTimeline?: () => void;
   isCreatingProject?: boolean;
   isCreatingFolder?: boolean;
   className?: string;
@@ -15,6 +16,7 @@ interface MorphingAddButtonProps {
 export default function MorphingAddButton({
   onAddProject,
   onAddFolder,
+  onAddTimeline,
   isCreatingProject = false,
   isCreatingFolder = false,
   className = "",
@@ -40,7 +42,9 @@ export default function MorphingAddButton({
     setIsExpanded(false);
   };
 
-  const handleBackdropClick = () => {
+  const handleAddTimeline = () => {
+    haptic.trigger("light");
+    onAddTimeline?.();
     setIsExpanded(false);
   };
 
@@ -54,13 +58,13 @@ export default function MorphingAddButton({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="fixed inset-0 z-115 bg-black/20"
-            onClick={handleBackdropClick}
+            onClick={() => setIsExpanded(false)}
           />
         )}
       </AnimatePresence>
 
       <div
-        className={`fixed left-1/2 -translate-x-1/2 z-120 ${bottomOffset || "bottom-8"} ${className}`}
+        className={`fixed left-1/2 -translate-x-1/2 z-120 ${bottomOffset || "bottom-16"} ${className}`}
       >
         {!isExpanded && (
           <motion.span
@@ -73,21 +77,12 @@ export default function MorphingAddButton({
               border: "1px solid var(--button-border)",
               boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
             }}
-            transition={{
-              layout: {
-                type: "spring",
-                stiffness: 800,
-                damping: 45,
-              },
-            }}
+            transition={{ layout: { type: "spring", stiffness: 800, damping: 45 } }}
           >
             <button
               onClick={handleToggle}
               className="h-10 text-base font-semibold inline-flex items-center justify-center gap-2 whitespace-nowrap px-6 text-primary-foreground hover:brightness-120 transition-all cursor-pointer active:scale-95 w-full"
-              style={{
-                background: "transparent",
-                border: "none",
-              }}
+              style={{ background: "transparent", border: "none" }}
             >
               <motion.span
                 initial={{ opacity: 0, filter: "blur(4px)" }}
@@ -118,11 +113,7 @@ export default function MorphingAddButton({
               onClick={(e) => e.stopPropagation()}
               exit={{ opacity: 0 }}
               transition={{
-                layout: {
-                  type: "spring",
-                  stiffness: 800,
-                  damping: 45,
-                },
+                layout: { type: "spring", stiffness: 800, damping: 45 },
                 opacity: { duration: 0.05 },
               }}
             >
@@ -133,27 +124,12 @@ export default function MorphingAddButton({
                 transition={{ duration: 0.08 }}
                 className="relative flex flex-col gap-2"
               >
+                {/* Add folder */}
                 <motion.button
-                  initial={{
-                    opacity: 0,
-                    scale: 0.9,
-                    filter: "blur(8px)",
-                  }}
-                  animate={{
-                    opacity: 1,
-                    scale: 1,
-                    filter: "blur(0px)",
-                  }}
-                  exit={{
-                    opacity: 0,
-                    filter: "blur(4px)",
-                  }}
-                  transition={{
-                    type: "spring",
-                    stiffness: 500,
-                    damping: 35,
-                    delay: 0.05,
-                  }}
+                  initial={{ opacity: 0, scale: 0.9, filter: "blur(8px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, filter: "blur(4px)" }}
+                  transition={{ type: "spring", stiffness: 500, damping: 35, delay: 0.05 }}
                   onClick={handleAddFolder}
                   disabled={isCreatingFolder}
                   className="h-10 text-base font-semibold rounded-2xl px-6 inline-flex items-center justify-center gap-2 whitespace-nowrap bg-white/5 hover:bg-white/10 transition-colors cursor-pointer active:scale-95 disabled:opacity-50 disabled:pointer-events-none text-white border border-[#353333]"
@@ -161,27 +137,13 @@ export default function MorphingAddButton({
                   <FolderPlus className="size-5" />
                   Add folder
                 </motion.button>
+
+                {/* Add project */}
                 <motion.button
-                  initial={{
-                    opacity: 0,
-                    scale: 0.9,
-                    filter: "blur(8px)",
-                  }}
-                  animate={{
-                    opacity: 1,
-                    scale: 1,
-                    filter: "blur(0px)",
-                  }}
-                  exit={{
-                    opacity: 0,
-                    filter: "blur(4px)",
-                  }}
-                  transition={{
-                    type: "spring",
-                    stiffness: 500,
-                    damping: 35,
-                    delay: 0.08,
-                  }}
+                  initial={{ opacity: 0, scale: 0.9, filter: "blur(8px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, filter: "blur(4px)" }}
+                  transition={{ type: "spring", stiffness: 500, damping: 35, delay: 0.08 }}
                   onClick={handleAddProject}
                   disabled={isCreatingProject}
                   className="h-10 text-base font-semibold rounded-2xl px-6 inline-flex items-center justify-center gap-2 whitespace-nowrap bg-white/5 hover:bg-white/10 transition-colors cursor-pointer active:scale-95 disabled:opacity-50 disabled:pointer-events-none text-white border border-[#353333]"
@@ -189,6 +151,21 @@ export default function MorphingAddButton({
                   <FilePlus className="size-5" />
                   Add project
                 </motion.button>
+
+                {/* Timeline import */}
+                {onAddTimeline && (
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.9, filter: "blur(8px)" }}
+                    animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, filter: "blur(4px)" }}
+                    transition={{ type: "spring", stiffness: 500, damping: 35, delay: 0.11 }}
+                    onClick={handleAddTimeline}
+                    className="h-10 text-base font-semibold rounded-2xl px-6 inline-flex items-center justify-center gap-2 whitespace-nowrap bg-amber-500/8 hover:bg-amber-500/15 transition-colors cursor-pointer active:scale-95 text-amber-400 border border-amber-500/20"
+                  >
+                    <Scissors className="size-5" />
+                    타임라인 가져오기
+                  </motion.button>
+                )}
               </motion.div>
             </motion.div>
           )}

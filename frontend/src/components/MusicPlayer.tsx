@@ -393,14 +393,18 @@ export default function MusicPlayer({
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Coming back to foreground - check if audio should be playing
-        if (isPlaying && audio.paused && audio.src) {
-          // Small delay to let iOS wake up properly
+        if (isPlaying && audio.src) {
+          // Delay to let iOS wake up, then resume or recover
           setTimeout(() => {
-            if (isPlaying && audio.paused && audio.src) {
-              audio.play().catch(() => {});
+            if (!isPlaying || !audioRef.current) return;
+            const a = audioRef.current;
+            if (a.error) {
+              // audio in error state — trigger error event for recovery
+              a.dispatchEvent(new Event('error'));
+            } else if (a.paused) {
+              a.play().catch(() => {});
             }
-          }, 300);
+          }, 500);
         }
       }
     };
@@ -409,40 +413,72 @@ export default function MusicPlayer({
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isPlaying]);
 
-    // Recover from signed URL expiry (MEDIA_ERR_NETWORK) during long playback
+    // Recover from any audio error (signed URL expiry, iOS background eviction, etc.)
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack) return;
 
+    let recovering = false;
+    let lastRecoverAt = 0;
+
     const handleError = async () => {
       const a = audioRef.current;
       if (!a) return;
-      // Only recover from network errors (e.g. signed URL expired → 403)
-      if (a.error?.code !== MediaError.MEDIA_ERR_NETWORK) return;
+      // Avoid recovery loops — cap to one attempt per 3s
+      const now = Date.now();
+      if (recovering || now - lastRecoverAt < 3000) return;
+      recovering = true;
+      lastRecoverAt = now;
       try {
         const savedTime = a.currentTime;
-        const wasPlaying = !a.paused;
+        const wasPlaying = !a.paused || isPlaying;
         const signed = await getStreamUrl(currentTrack.id);
         const newUrl = signed.url; // relative path, same origin
         if (!audioRef.current) return;
         audioRef.current.src = newUrl;
         audioRef.current.load();
-        await new Promise<void>((res) => {
-          audioRef.current!.addEventListener("canplay", () => res(), { once: true });
+        await new Promise<void>((res, rej) => {
+          const el = audioRef.current;
+          if (!el) return rej();
+          el.addEventListener("canplay", () => res(), { once: true });
+          el.addEventListener("error", () => rej(), { once: true });
         });
         if (!audioRef.current) return;
         audioRef.current.currentTime = savedTime;
         if (wasPlaying) audioRef.current.play().catch(() => {});
       } catch {
         // refresh failed — stream just stops, no crash
+      } finally {
+        recovering = false;
       }
     };
 
+    // Stuck loading: if audio stalls for 8s, trigger recovery
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleStall = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        if (audioRef.current && !audioRef.current.paused === false && isPlaying) {
+          audioRef.current.dispatchEvent(new Event("error"));
+        }
+      }, 8000);
+    };
+    const handleCanPlay = () => {
+      if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+    };
+
     audio.addEventListener("error", handleError);
+    audio.addEventListener("stalled", handleStall);
+    audio.addEventListener("waiting", handleStall);
+    audio.addEventListener("canplay", handleCanPlay);
     return () => {
       audio.removeEventListener("error", handleError);
+      audio.removeEventListener("stalled", handleStall);
+      audio.removeEventListener("waiting", handleStall);
+      audio.removeEventListener("canplay", handleCanPlay);
+      if (stallTimer) clearTimeout(stallTimer);
     };
-  }, [currentTrack]);
+  }, [currentTrack, isPlaying]);
 
   useEffect(() => {
     const updateTime = () => {

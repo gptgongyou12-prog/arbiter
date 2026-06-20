@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "motion/react";
-import { Scissors, Loader2, CheckCircle2, XCircle, X } from "lucide-react";
+import { Scissors, Download, Loader2, CheckCircle2, XCircle, X } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -14,14 +14,25 @@ export interface SplitJobStatus {
   failed: number;
 }
 
+export interface MediaImportJobStatus {
+  status: "pending" | "running" | "done" | "failed";
+  message: string;
+  progress: string;
+  track_id: string;
+}
+
+type JobKind = "split" | "media";
+type AnyStatus = SplitJobStatus | MediaImportJobStatus;
+
 interface ActiveJob {
   jobId: string;
   videoTitle: string;
-  status: SplitJobStatus | null;
+  kind: JobKind;
+  status: AnyStatus | null;
 }
 
 interface SplitJobContextType {
-  startJob: (jobId: string, videoTitle: string) => void;
+  startJob: (jobId: string, videoTitle: string, kind?: JobKind) => void;
   activeJob: ActiveJob | null;
 }
 
@@ -32,6 +43,25 @@ const SplitJobContext = createContext<SplitJobContextType>({
 
 export function useSplitJob() {
   return useContext(SplitJobContext);
+}
+
+function statusUrl(kind: JobKind, jobId: string) {
+  return kind === "media"
+    ? `/api/library/youtube/import/status/${jobId}`
+    : `/api/library/youtube/split/status/${jobId}`;
+}
+
+// 진행률을 0-100 숫자로 정규화 ("3/12" 또는 "45%" 형식 모두 지원)
+function parseProgressPct(progress: string, isDone: boolean): number {
+  if (progress.endsWith("%")) {
+    const n = parseFloat(progress.slice(0, -1));
+    return isNaN(n) ? (isDone ? 100 : 0) : n;
+  }
+  if (progress.includes("/")) {
+    const [a, b] = progress.split("/").map((s) => parseInt(s, 10));
+    return b ? (a / b) * 100 : isDone ? 100 : 0;
+  }
+  return isDone ? 100 : 0;
 }
 
 // ─── Provider + floating UI ──────────────────────────────────────────────────
@@ -48,18 +78,18 @@ export function SplitJobProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const startJob = useCallback((jobId: string, videoTitle: string) => {
+  const startJob = useCallback((jobId: string, videoTitle: string, kind: JobKind = "split") => {
     stopPoll();
-    setActiveJob({ jobId, videoTitle, status: null });
+    setActiveJob({ jobId, videoTitle, kind, status: null });
 
     pollRef.current = setInterval(async () => {
       try {
-        const r = await fetch(`/api/library/youtube/split/status/${jobId}`, {
+        const r = await fetch(statusUrl(kind, jobId), {
           credentials: "include",
         });
         if (!r.ok) return;
         const data = await r.json();
-        const status: SplitJobStatus = data.data ?? data;
+        const status: AnyStatus = data.data ?? data;
 
         setActiveJob((prev) =>
           prev?.jobId === jobId ? { ...prev, status } : prev
@@ -67,13 +97,17 @@ export function SplitJobProvider({ children }: { children: React.ReactNode }) {
 
         if (status.status === "done") {
           stopPoll();
-          setTimeout(() => {
-            navigate({
-              to: "/project/$projectId",
-              params: { projectId: status.project_id },
-            });
+          if (kind === "split") {
+            setTimeout(() => {
+              navigate({
+                to: "/project/$projectId",
+                params: { projectId: (status as SplitJobStatus).project_id },
+              });
+              setTimeout(() => setActiveJob(null), 3000);
+            }, 1000);
+          } else {
             setTimeout(() => setActiveJob(null), 3000);
-          }, 1000);
+          }
         } else if (status.status === "failed") {
           stopPoll();
         }
@@ -93,9 +127,8 @@ export function SplitJobProvider({ children }: { children: React.ReactNode }) {
   const isDone = activeJob?.status?.status === "done";
   const isFailed = activeJob?.status?.status === "failed";
   const progress = activeJob?.status?.progress ?? "";
-  const progressPct = progress.includes("/")
-    ? (parseInt(progress.split("/")[0]) / parseInt(progress.split("/")[1])) * 100
-    : isDone ? 100 : 0;
+  const progressPct = parseProgressPct(progress, !!isDone);
+  const progressLabel = `${Math.round(progressPct)}%`;
 
   return (
     <SplitJobContext.Provider value={{ startJob, activeJob }}>
@@ -131,6 +164,8 @@ export function SplitJobProvider({ children }: { children: React.ReactNode }) {
                     <CheckCircle2 className="size-5 text-green-400" />
                   ) : isFailed ? (
                     <XCircle className="size-5 text-red-400" />
+                  ) : activeJob.kind === "media" ? (
+                    <Download className="size-5 text-violet-400" />
                   ) : (
                     <Scissors className="size-5 text-violet-400" />
                   )}
@@ -150,8 +185,8 @@ export function SplitJobProvider({ children }: { children: React.ReactNode }) {
                     }`}>
                       {activeJob.status?.message ?? "준비 중..."}
                     </p>
-                    {progress && !isDone && (
-                      <span className="text-xs text-white/30 shrink-0 ml-auto">{progress}</span>
+                    {!isDone && !isFailed && (
+                      <span className="text-xs text-white/30 shrink-0 ml-auto">{progressLabel}</span>
                     )}
                   </div>
                 </div>

@@ -10,7 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAudioPlayer } from "@/contexts/AudioPlayerContext";
 import {
   SearchIcon, UserIcon, ChevronLeft,
-  ClockIcon, ListMusicIcon, LayoutGridIcon,
+  HardDriveIcon, LayoutListIcon, LayoutGridIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFolder, useAllFolders, useUpdateFolder } from "@/hooks/useFolders";
@@ -26,11 +26,11 @@ export const Route = createFileRoute("/_main")({
 });
 
 const BOTTOM_NAV = [
-  { icon: LayoutGridIcon, label: "홈",        to: "/"            },
-  { icon: SearchIcon,     label: "검색",       action: "search"   },
-  { icon: ClockIcon,      label: "히스토리",   to: "/history"     },
-  { icon: ListMusicIcon,  label: "플레이리스트", to: "/playlists" },
-  { icon: UserIcon,       label: "프로필",     to: "/profile"     },
+  { icon: LayoutGridIcon, label: "홈",      to: "/"        },
+  { icon: SearchIcon,     label: "검색",     action: "search" },
+  { icon: HardDriveIcon,  label: "스토리지", to: "/storage"  },
+  { icon: LayoutListIcon, label: "부가기능", to: "/extras"   },
+  { icon: UserIcon,       label: "프로필",   to: "/profile"  },
 ] as const;
 
 function MobileBottomNav({
@@ -43,6 +43,7 @@ function MobileBottomNav({
   const isActive = (to?: string) => {
     if (!to) return false;
     if (to === "/") return pathname === "/" || pathname.startsWith("/folder/");
+    if (to === "/storage") return pathname.startsWith("/storage") || pathname.startsWith("/video-folder/");
     return pathname.startsWith(to);
   };
 
@@ -201,7 +202,7 @@ function MainLayout() {
   return (
     <>
       {/* ─── Desktop layout ─── */}
-      <div className="hidden md:flex h-screen overflow-hidden bg-[#181818]">
+      <div className="hidden md:flex h-screen overflow-hidden bg-[#111]">
         {/* Left sidebar */}
         <div className="w-[240px] shrink-0 h-full">
           <Sidebar onSearchOpen={() => setIsSearchOpen(true)} />
@@ -255,9 +256,9 @@ function MainLayout() {
       </div>
 
       {/* ─── Mobile layout ─── */}
-      <div className="md:hidden min-h-screen bg-[#181818]">
+      <div className="md:hidden h-screen overflow-hidden bg-[#111]">
         {/* Mobile header */}
-        <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-5 py-4 gap-3 bg-[#181818]/80 backdrop-blur-md">
+        <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-5 py-4 gap-3 bg-[#111]/80 backdrop-blur-md">
           {isFolderRoute ? (
             isDeeplyNested ? (
               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -291,7 +292,7 @@ function MainLayout() {
             <div className="flex-1 min-w-0">
               <Link to="/">
                 <div className="text-xl font-medium text-white leading-tight">arbiter</div>
-                <div className="text-[9px] text-white/25 font-mono select-none">0.260613.01.0 (beta)</div>
+                <div className="text-[9px] text-white/25 font-mono select-none">0.260618.02.0 (beta)</div>
               </Link>
             </div>
           )}
@@ -307,7 +308,7 @@ function MainLayout() {
         </header>
 
         {/* Scrollable content */}
-        <div className={currentTrack ? "pt-16 pb-[8.5rem]" : "pt-16 pb-20"}>
+        <div className={("overflow-y-auto h-full " + (currentTrack ? "pt-16 pb-[8.5rem]" : "pt-16 pb-20"))}>
           <Outlet />
         </div>
 

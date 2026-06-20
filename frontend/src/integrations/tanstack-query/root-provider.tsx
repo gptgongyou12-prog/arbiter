@@ -5,6 +5,7 @@ export function getContext() {
     defaultOptions: {
       queries: {
         retry: 1,
+        refetchOnWindowFocus: false,
       },
     },
   })

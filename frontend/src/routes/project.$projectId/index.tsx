@@ -126,6 +126,7 @@ function ProjectPageContent({ projectId }: { projectId: string }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCoverModalOpen, setIsCoverModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [confirmPlay, setConfirmPlay] = useState<{track: any; projectTracks: any[]; tracksAfter: any[]} | null>(null);
   const [isVersionsModalOpen, setIsVersionsModalOpen] = useState(false);
   const [versionUploadTrack, setVersionUploadTrack] = useState<Track | null>(
     null,
@@ -178,19 +179,24 @@ function ProjectPageContent({ projectId }: { projectId: string }) {
       const tracksAfter =
         clickedIndex >= 0 ? tracks.slice(clickedIndex + 1) : [];
 
-      play(
-        mapTrackToPlayerTrack(track, project, projectCoverImage),
-        mapTracksToPlayerTracks(tracks, project, projectCoverImage),
-        true,
-        false,
-        mapTracksToPlayerTracks(tracksAfter, project, projectCoverImage),
-      );
+      const mapped = mapTrackToPlayerTrack(track, project, projectCoverImage);
+      const mappedAll = mapTracksToPlayerTracks(tracks, project, projectCoverImage);
+      const mappedAfter = mapTracksToPlayerTracks(tracksAfter, project, projectCoverImage);
+
+      if (isPlaying && currentTrack && currentTrack.id !== mapped.id) {
+        setConfirmPlay({ track: mapped, projectTracks: mappedAll, tracksAfter: mappedAfter });
+        return;
+      }
+
+      play(mapped, mappedAll, true, false, mappedAfter);
     },
     [
       tracks,
       project,
       projectCoverImage,
       play,
+      isPlaying,
+      currentTrack,
       isNotesOpen,
       scrollToTrack,
       search,
@@ -950,6 +956,29 @@ function ProjectPageContent({ projectId }: { projectId: string }) {
         isGlobalSearchOpen={search.isGlobalSearchOpen}
         onCloseGlobalSearch={() => search.setIsGlobalSearchOpen(false)}
       />
+      {/* Confirm play banner */}
+      {confirmPlay && (
+        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1a1025] px-4 py-3 shadow-2xl">
+          <span className="text-sm text-white/70 max-w-[200px] truncate">
+            <span className="text-white font-medium">{confirmPlay.track.title}</span> 재생?
+          </span>
+          <button
+            onClick={() => {
+              play(confirmPlay.track, confirmPlay.projectTracks, true, false, confirmPlay.tracksAfter);
+              setConfirmPlay(null);
+            }}
+            className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500"
+          >
+            재생
+          </button>
+          <button
+            onClick={() => setConfirmPlay(null)}
+            className="shrink-0 rounded-lg px-2 py-1.5 text-xs text-white/40 hover:text-white"
+          >
+            취소
+          </button>
+        </div>
+      )}
     </>
   );
 }
