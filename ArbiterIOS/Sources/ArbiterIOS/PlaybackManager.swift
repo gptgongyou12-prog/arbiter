@@ -2,10 +2,16 @@ import AVFoundation
 import Combine
 import MediaPlayer
 
+enum PlayerRepeatMode { case off, all, one }
+
 /// Real background audio via AVAudioSession(.playback) + MPRemoteCommandCenter — the iOS
 /// equivalent of the Android app's Media3 foreground-service PlaybackService. This is what
 /// actually keeps audio alive when the app is backgrounded/screen-locked, unlike the PWA
 /// which only gets as much background execution as Safari is willing to grant a web page.
+///
+/// Uses a single AVPlayer with a manually-managed play order (rather than AVQueuePlayer) so
+/// shuffle, repeat, and jump-to-index all work the same way the Android PlaybackService's
+/// ExoPlayer-backed queue does — AVQueuePlayer has no way to reorder or jump non-destructively.
 @MainActor
 final class PlaybackManager: NSObject, ObservableObject {
     @Published var isPlaying = false
@@ -15,9 +21,14 @@ final class PlaybackManager: NSObject, ObservableObject {
     @Published var positionSeconds: Double = 0
     @Published var durationSeconds: Double = 0
     @Published var hasMedia = false
+    @Published var shuffleEnabled = false
+    @Published var repeatMode: PlayerRepeatMode = .off
+    @Published var queue: [Track] = []
+    @Published var currentQueueIndex: Int = -1
 
-    private let player = AVQueuePlayer()
-    private var queueTracks: [Track] = []
+    private let player = AVPlayer()
+    private var originalTracks: [Track] = []
+    private var playOrder: [Int] = []
     private var apiClient: APIClient?
     private var timeObserver: Any?
     private var tokenRefreshTimer: Timer?
@@ -83,16 +94,27 @@ final class PlaybackManager: NSObject, ObservableObject {
     // MARK: - Playback control
 
     func playQueue(tracks: [Track], startIndex: Int) {
-        guard let apiClient else { return }
-        queueTracks = tracks
-        let items = tracks[startIndex...].map { makePlayerItem(for: $0, apiClient: apiClient) }
-        player.removeAllItems()
-        for item in items {
-            player.insert(item, after: nil)
-        }
-        observeCurrentItemEnd()
-        applyCurrentMetadata()
+        originalTracks = tracks
+        playOrder = Array(tracks.indices)
+        shuffleEnabled = false
+        repeatMode = .off
+        publishQueue()
+        loadAndPlay(at: startIndex)
+    }
+
+    private func loadAndPlay(at position: Int) {
+        guard let apiClient, playOrder.indices.contains(position) else { return }
+        currentQueueIndex = position
+        let track = originalTracks[playOrder[position]]
+        let item = makePlayerItem(for: track, apiClient: apiClient)
+        observeItemEnd(item)
+        player.replaceCurrentItem(with: item)
+        applyMetadata(for: track)
         play()
+    }
+
+    private func publishQueue() {
+        queue = playOrder.map { originalTracks[$0] }
     }
 
     func play() {
@@ -112,14 +134,75 @@ final class PlaybackManager: NSObject, ObservableObject {
     }
 
     func next() {
-        player.advanceToNextItem()
-        applyCurrentMetadata()
+        advance(auto: false)
+    }
+
+    /// `auto` distinguishes a natural end-of-track advance (where repeat-one should replay
+    /// the same track) from an explicit user tap on "next" (which always moves forward).
+    private func advance(auto: Bool) {
+        guard !playOrder.isEmpty else { return }
+        if auto && repeatMode == .one {
+            seek(to: 0)
+            play()
+            return
+        }
+        var pos = currentQueueIndex + 1
+        if pos >= playOrder.count {
+            guard repeatMode == .all else {
+                pause()
+                return
+            }
+            pos = 0
+        }
+        loadAndPlay(at: pos)
     }
 
     func previous() {
-        // AVQueuePlayer has no native "previous" — restart the current track, matching the
-        // common mobile-player convention of "previous = restart unless near the very start".
-        seek(to: 0)
+        // Matches the common mobile-player convention: restart the current track if it's
+        // more than a few seconds in, otherwise actually go to the previous track.
+        if positionSeconds > 3 {
+            seek(to: 0)
+            return
+        }
+        guard !playOrder.isEmpty else { return }
+        var pos = currentQueueIndex - 1
+        if pos < 0 {
+            guard repeatMode == .all else { return }
+            pos = playOrder.count - 1
+        }
+        loadAndPlay(at: pos)
+    }
+
+    func jumpToQueueIndex(_ index: Int) {
+        loadAndPlay(at: index)
+    }
+
+    func toggleShuffle() {
+        let currentTrack = playOrder.indices.contains(currentQueueIndex) ? playOrder[currentQueueIndex] : nil
+        shuffleEnabled.toggle()
+        if shuffleEnabled {
+            var order = Array(originalTracks.indices)
+            order.shuffle()
+            if let currentTrack, let idx = order.firstIndex(of: currentTrack) {
+                order.swapAt(0, idx)
+            }
+            playOrder = order
+        } else {
+            playOrder = Array(originalTracks.indices)
+        }
+        if let currentTrack, let newPos = playOrder.firstIndex(of: currentTrack) {
+            currentQueueIndex = newPos
+        }
+        publishQueue()
+    }
+
+    /// Cycles OFF -> ALL -> ONE -> OFF, matching the Android app's convention.
+    func cycleRepeatMode() {
+        repeatMode = switch repeatMode {
+        case .off: .all
+        case .all: .one
+        case .one: .off
+        }
     }
 
     func seek(to seconds: Double) {
@@ -135,28 +218,21 @@ final class PlaybackManager: NSObject, ObservableObject {
             url: apiClient.streamURL(trackPublicId: track.publicId),
             options: ["AVURLAssetHTTPHeaderFieldsKey": headers]
         )
-        let item = AVPlayerItem(asset: asset)
-        item.trackIdentifier = track.publicId
-        return item
+        return AVPlayerItem(asset: asset)
     }
 
-    private func observeCurrentItemEnd() {
+    private func observeItemEnd(_ item: AVPlayerItem) {
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
         }
         endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main
+            forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
-            self?.applyCurrentMetadata()
+            self?.advance(auto: true)
         }
     }
 
-    private func applyCurrentMetadata() {
-        guard let id = player.currentItem?.trackIdentifier,
-              let track = queueTracks.first(where: { $0.publicId == id }) else {
-            hasMedia = player.currentItem != nil
-            return
-        }
+    private func applyMetadata(for track: Track) {
         currentTrackId = track.publicId
         currentTitle = track.title
         currentArtist = track.artist ?? ""
@@ -165,24 +241,12 @@ final class PlaybackManager: NSObject, ObservableObject {
     }
 
     private func updateNowPlayingInfo() {
-        var info: [String: Any] = [
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: currentTitle,
             MPMediaItemPropertyArtist: currentArtist,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: positionSeconds,
             MPMediaItemPropertyPlaybackDuration: durationSeconds,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
         ]
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        _ = info // silence unused-mutation warning if artwork loading is added later
-    }
-}
-
-/// AVPlayerItem doesn't carry custom metadata by default — stash the track's public_id via
-/// associated storage so we can look up which Track is currently playing.
-private var trackIdentifierKey: UInt8 = 0
-extension AVPlayerItem {
-    var trackIdentifier: String? {
-        get { objc_getAssociatedObject(self, &trackIdentifierKey) as? String }
-        set { objc_setAssociatedObject(self, &trackIdentifierKey, newValue, .OBJC_ASSOCIATION_RETAIN) }
     }
 }

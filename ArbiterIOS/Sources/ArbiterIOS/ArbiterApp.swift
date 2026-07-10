@@ -15,6 +15,8 @@ struct ArbiterApp: App {
 private struct RootView: View {
     @EnvironmentObject var app: AppModel
     @State private var path: [Route] = []
+    @State private var showLyrics = false
+    @State private var showQueue = false
 
     var body: some View {
         if !app.isLoggedIn {
@@ -31,9 +33,31 @@ private struct RootView: View {
                                 TrackListView(projectId: id, projectName: name)
                             }
                         }
-                    PlayerBar(playback: app.playback)
+                    PlayerBar(
+                        playback: app.playback,
+                        onLyricsClick: { showLyrics = true },
+                        onQueueClick: { showQueue = true }
+                    )
                 }
                 .background(Theme.bg0)
+            }
+            .sheet(isPresented: $showLyrics) {
+                if let trackId = app.playback.currentTrackId {
+                    LyricsView(
+                        apiClient: app.apiClient,
+                        trackPublicId: trackId,
+                        positionSeconds: app.playback.positionSeconds,
+                        onDismiss: { showLyrics = false }
+                    )
+                }
+            }
+            .sheet(isPresented: $showQueue) {
+                QueueView(
+                    queue: app.playback.queue,
+                    currentIndex: app.playback.currentQueueIndex,
+                    onSelect: { app.playback.jumpToQueueIndex($0) },
+                    onDismiss: { showQueue = false }
+                )
             }
         }
     }
