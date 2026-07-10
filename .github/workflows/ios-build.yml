@@ -1,0 +1,39 @@
+name: iOS Build
+
+on:
+  push:
+    paths:
+      - "ArbiterIOS/**"
+      - ".github/workflows/ios-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ArbiterIOS
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for iOS Simulator (compile check, no signing needed)
+        run: |
+          xcodebuild build \
+            -project ArbiterIOS.xcodeproj \
+            -scheme ArbiterIOS \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty || xcodebuild build \
+            -project ArbiterIOS.xcodeproj \
+            -scheme ArbiterIOS \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
